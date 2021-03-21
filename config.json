@@ -1,0 +1,8 @@
+{
+	"token": "discord_bot_token",
+	"censored_words_startswith": ["censored_wor", "test_"],
+	"censored_words_independent": ["censor1", "censor2"],
+	"minecraft_ftp": {"hostname": "ftp_ip_address", "username": "ftp_user", "password": "ftp_pass"},
+	"minecraft_rcon": {"host": "minecraft_ip_address", "port": 25575, "password": "rcon_pass"},
+	"ip_geolocation_api": "https://api.ipgeolocation.io/timezone?apiKey=abcd1234&ip={ip_address}"
+}

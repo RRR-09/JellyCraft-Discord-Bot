@@ -1,0 +1,8 @@
+#!/bin/bash
+VAR1=$(screen -list)
+DIR="/home/bots/jellybot"
+if [[ $VAR1 != *"jellybot-main"* ]]; then
+ echo "Bot Inactive."
+ screen -A -m -d -S jellybot-main bash -c "cd $DIR;python3.9 bot.py config_main"
+ echo "Restarted."
+fi
