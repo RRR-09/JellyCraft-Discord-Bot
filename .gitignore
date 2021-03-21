@@ -1,4 +1,6 @@
 # Project Files
+config_prod.json
+config_dev.json
 profile_links.json
 profiles.json
 
