@@ -1,0 +1,18 @@
+{
+	"owner_id": 547603829387165708,
+	"server": 806278377333325836,
+	"channels_allowing_bot_commands": [817622634598236180],
+	"channel_server_console": 817627699518373909,
+	"channel_in_game": 817266339327770645,
+	"random_emoji_channels": {"817149276786262046": "{emoji} off-topic"},
+	"censored_words_startswith": ["fuck", "fcuk", "fck", "fucc", "nigg", "cunt", "testcensor"],
+	"censored_words_independent": ["nig","niga"],
+	"ip_geolocation_api": "https://api.ipgeolocation.io/timezone?apiKey={api_key}&ip={ip_address}",
+	"minecraft_avatar_api": "https://visage.surgeplay.com/front/{uuid}.png",
+	"minecraft_avatar_not_found_url": "https://i.imgur.com/MSg2a9d.jpg",
+	"minecraft_name_to_uuid_api": "https://api.mojang.com/users/profiles/minecraft/{name}",
+	"random_emojis": ["🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍅", "🥝", "🥥", "🥭", "🍍", "🍑", "🍒", "🍈",
+                         "🍓", "🍆", "🥑", "🥦", "🥬", "🥒", "🌶", "🌽", "🥖", "🍞", "🥯", "🥐", "🍠", "🥔", "🧅", "🧄",
+                         "🥕", "🥨", "🧀", "🥚", "🍳", "🧈", "🥞", "🧇", "🥓", "🥙", "🥪", "🍕", "🍟", "🍔", "🌭", "🍖",
+                         "🍗", "🥩"]
+}

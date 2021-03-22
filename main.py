@@ -10,9 +10,11 @@ import time
 from datetime import datetime
 from ftplib import FTP
 from traceback import format_exc
+import argparse
 # endregion
 
 # region External Libraries
+from dotenv import load_dotenv  # pip install python-dotenv
 import pytz  # pip install pytz
 
 print(
@@ -28,51 +30,83 @@ from mcstatus import MinecraftServer  # pip install mcstatus
 import yaml  # pip install PyYaml
 from mcipc.rcon.je import Client  # pip3.9 install mcipc
 
+
 # endregion
 
 # region Global Functions/Properties
+def get_est_time(time_provided=None):
+    if time_provided is None:
+        time_provided = datetime.now()
+    return pytz.timezone('US/Eastern').localize(time_provided).strftime("%Y-%b-%d %I:%M:%S %p EST")
+
+
+def do_log(message):
+    print(f"[{get_est_time()}] {message}")
+
+
+class VarHolder:
+    pass
+
+
+global bot
+bot = VarHolder()
 logger = logging.getLogger('discord')
 logger.setLevel(logging.DEBUG)
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
 logger.addHandler(handler)
 
-print("Initializing Discord Client")  # Initializing discord.py client can stall, this helps with identifying it
+do_log("Initializing Discord Client")  # Initializing discord.py client can stall, this helps with identifying it
 client_intents = discord.Intents(messages=True, guilds=True, members=True)
-client = discord.Client(intents=client_intents)
-print("Initialized Discord Client")
-
-
-def get_est_time(time_provided=None):
-    if time_provided is None:
-        time_provided = datetime.now()
-    time_provided = pytz.timezone('US/Eastern').localize(time_provided).strftime("%Y-%b-%d %I:%M:%S %p EST")
-    return time_provided
+bot.client = discord.Client(intents=client_intents)
+do_log("Initialized Discord Client")
 
 
 async def log_error(error):
     if "KeyboardInterrupt" in error:
-        print("KeyboardInterrupt")
-        os._exit(1)
-        return
-    print("BOT EXCEPTION:")
-    print(error)
+        raise KeyboardInterrupt
+    error_message = f"[{get_est_time()}]\n{error}"
+    error_log_filename = "errors.log"
     try:
-        with open("errors.txt", "a") as f:
-            f.write("\n\n" + error + "\n\n")
-    except:
-        try:
-            print("ERROR: NO ERRORS FILE, WRITING")
-            with open("errors.txt", "w") as f:
-                f.write("\n\n" + error + "\n\n")
-        except:
-            print("ERROR: NO FILESYSTEM ACCESS")
+        with open(error_log_filename, "a") as error_log:
+            error_log.write(error_message)
+    except FileNotFoundError:
+        with open(error_log_filename, "w") as error_log:
+            error_message = f"[{get_est_time()}] WARNING: Failed to find existing error log. Writing to new.\n\n{error}"
+            error_log.write(error_message)
+    do_log(error_message)
+
+
+def json_eval_object_pairs_hook(ordered_pairs):
+    special = {
+        "true": True,
+        "false": False,
+        "null": None,
+    }
+    result = {}
+    for key, value in ordered_pairs:
+        if key in special:
+            key = special[key]
+        else:
+            for numeric in int, float:
+                try:
+                    key = numeric(key)
+                except ValueError:
+                    continue
+                else:
+                    break
+        result[key] = value
+    return result
+
+
+def json_load_eval(fp_obj):
+    return json.load(fp_obj, object_pairs_hook=json_eval_object_pairs_hook)
 
 
 async def find_server_member(message=None, discord_id=None):
     message_copy = message
     if message_copy is None:
-        message_copy = Varholder()
+        message_copy = VarHolder()
         message_copy.content = "_ " + str(discord_id)
         message_copy.guild = bot.server
     msg = message_copy.content.split(" ")
@@ -145,7 +179,7 @@ def do_side_thread(loop):
     loop.run_forever()
 
 
-@client.event
+@bot.client.event
 async def on_error(event, args="", kwargs=""):
     error = format_exc()
     await log_error("[Uncaught Error] " + error)
@@ -161,7 +195,7 @@ async def get_hook_in_server(message):
             found_hook = h
             break
     if found_hook is None:
-        found_hook = await message.channel.create_webhook(name=client.user.display_name)
+        found_hook = await message.channel.create_webhook(name=bot.client.user.display_name)
     return found_hook
 
 
@@ -185,7 +219,7 @@ async def is_mod_chat(channel):
             everyone_can_see = overwrite[1] is None or overwrite[1] != False
             break
     if not everyone_can_see:
-        aids_can_see = True
+        aids_cant_see = True
         for overwrite in channel.overwrites_for(bot.server.get_role(817297406759534612)):
             if overwrite[0] == "read_messages":
                 # print("aids cant see: {}".format(overwrite[1]))
@@ -203,17 +237,17 @@ async def INIT_censor():
             bot.uncensored_channels.append(channel.id)
 
 
-@client.event
+@bot.client.event
 async def on_guild_channel_update(before, after):
     await INIT_censor()
 
 
-@client.event
+@bot.client.event
 async def on_guild_channel_create(before, after):
     await INIT_censor()
 
 
-@client.event
+@bot.client.event
 async def on_guild_channel_delete(before, after):
     await INIT_censor()
 
@@ -221,12 +255,12 @@ async def on_guild_channel_delete(before, after):
 async def should_censor_message(text):
     censor = False
     split_message = text.lower().split(" ")
-    for censored_word in bot.config["censored_words_startswith"]:
+    for censored_word in bot.censored_words_startswith:
         for word in split_message:
             if word.startswith(censored_word):
                 censor = True
     if not censor and any(
-            word in split_message for word in bot.config["censored_words_independent"]):  # Split by spaces
+            word in split_message for word in bot.censored_words_independent):  # Split by spaces
         censor = True
     return censor
 
@@ -235,20 +269,23 @@ async def BOTCMD_censor(message):
     if message.channel.id in bot.uncensored_channels:
         return
     if await should_censor_message(message.content):
+        await message.delete()
         embed = Embed()
-        embed.title = "Bad Language"
-        embed.description = "{}, Please don't use bad language 😟\nAlso, please don't attempt to bypass this chat filter or you will get in trouble.".format(
-            message.author.mention)
+        embed.title = f"Bad Language in #{message.channel.name}"
+        embed.description = f"{message.author.mention}, Please don't use bad language 😟\n"
+        embed.description += "Also, please don't attempt to bypass this chat filter or you will get in trouble."
         if message.author.bot:
-            if message.channel.id not in [bot.channel_ingame.id, bot.channel_console.id]:
-                embed.description = "Somehow, this bot sent bad language. Please tell a staff member if you identify the cause."
+            if message.channel.id not in [bot.channel_in_game.id, bot.channel_console.id]:
+                embed.description = "Somehow, this bot sent bad language. Please tell a staff member if you identify " \
+                                    "the cause. "
                 await message.channel.send(embed=embed)
         else:
             try:
                 await message.author.send(embed=embed)
-            except:
+            except Exception:
+                embed.title = "Bad Language"
                 await message.channel.send(embed=embed)
-        await message.delete()
+
 
 
 async def INIT_profiles():
@@ -303,7 +340,7 @@ async def BOTCMD_discord_verify(message):
 
 
 async def get_minecraft_uuid(minecraft_name):
-    response = requests.get('https://api.mojang.com/users/profiles/minecraft/{}'.format(minecraft_name))
+    response = requests.get(bot.minecraft_name_to_uuid_api.format(name=minecraft_name))
     info = response.json() if response.status_code == 200 else {}
     return info
 
@@ -348,9 +385,9 @@ async def update_player_info(discord_id=None, minecraft_target=None):
         profile["skin"] = "N/A"
         return profile
     profile["username"] = uuid_obj["name"]
-    profile["uuid"] = await FUNC_UUIDConvert(uuid_obj["id"])
-    avatar_request = requests.get('https://visage.surgeplay.com/front/{}.png'.format(profile["uuid"]))
-    profile["avatar"] = avatar_request.url if avatar_request.status_code == 200 else "https://i.imgur.com/MSg2a9d.jpg"
+    profile["uuid"] = await convert_minecraft_uuid(uuid_obj["id"])
+    avatar_request = requests.get(bot.minecraft_avatar_api.format(uuid=profile["uuid"]))
+    profile["avatar"] = avatar_request.url if avatar_request.status_code == 200 else bot.minecraft_avatar_not_found_url
     return profile
 
 
@@ -404,6 +441,8 @@ async def get_english_timestamp(time_var):
 async def CMD_pinfo(message):
     if not message.content.lower().startswith("/pinfo"):
         return
+    await message.add_reaction("⌛")
+
     args = message.content.lower().strip().split(" ")
     embed = Embed()
     embed.title = "Player Info"
@@ -429,7 +468,8 @@ async def CMD_pinfo(message):
                 target = discord_target if target is None else target.display_name
             embed.description = "**Could not find any player information for {} user \"**{}**\"!**".format(search_type,
                                                                                                            target)
-            await message.channel.send(embed=embed)
+        await message.channel.send(embed=embed)
+        await message.remove_reaction("⌛", bot.client.user)
         return
     # todo: rewrite the logic so pycharm doesn't give a breaking suggestion
     elif profile == False:
@@ -438,6 +478,8 @@ async def CMD_pinfo(message):
         else:
             embed.description = "**Could not find Discord user **{}** in the Discord server!**".format(
                 "\"" + discord_target + "\"")
+        await message.channel.send(embed=embed)
+        await message.remove_reaction("⌛", bot.client.user)
         return
 
     if profile["discord_username"] == "N/A":
@@ -448,7 +490,7 @@ async def CMD_pinfo(message):
         discord_user_entry = profile["discord_username"]
     embed.add_field(name="Discord", value=discord_user_entry)
     embed.add_field(name="Minecraft", value=profile["username"])
-    embed.set_footer(text=await FUNC_UUIDConvert(profile["uuid"]))
+    embed.set_footer(text=await convert_minecraft_uuid(profile["uuid"]))
     embed.set_thumbnail(url=profile["avatar"])
     if bot.server_online:
         try:
@@ -458,22 +500,22 @@ async def CMD_pinfo(message):
             if profile["username"] in query.players.names:
                 player_online = True
             embed.add_field(name="Status on Minecraft", value="Online" if player_online else "Offline")
-        except:
+        except Exception:
             pass
-        profile["essentials"] = await FUNC_GetEssentials(profile["uuid"])
+        profile["essentials"] = await get_essentials_profile(profile["uuid"])
         localTime = None
-        if profile["essentials"] is not None and "ipAddress" in profile["essentials"]:
+        if profile["essentials"] is not False and "ipAddress" in profile["essentials"]:
             ip = profile["essentials"]["ipAddress"]
             try:
-                r = requests.get(bot.config["ip_geolocation_api"].format(ip_address=ip)).json()
+                r = requests.get(bot.ip_geolocation_api.format(ip_address=ip)).json()
                 iptime = r["time_12"].replace(" ", ":").split(":")
                 localTime = "{}:{} {}\n*({})*".format(iptime[0], iptime[1], iptime[3], r["date"])
-            except:
+            except Exception:
                 error = format_exc()
                 await log_error("[IPTimeZone Error] " + error)
         embed.add_field(name="Local Time", value=localTime if localTime is not None else "ERROR")
 
-        if profile["essentials"] is not None and "timestamps" in profile["essentials"]:
+        if profile["essentials"] is not False and "timestamps" in profile["essentials"]:
             if player_online:
                 online = profile["essentials"]["timestamps"]["login"] / 1000
                 online = time.time() - online
@@ -487,6 +529,7 @@ async def CMD_pinfo(message):
         else:
             embed.add_field(name="Playtime/Offline Since", value="ERROR")
 
+    await message.remove_reaction("⌛", bot.client.user)
     await message.channel.send(embed=embed)
 
 
@@ -495,7 +538,7 @@ async def CMD_players(message):
         await message.add_reaction("⌛")
         embed = Embed()
         embed.title = "Server Players"
-        server = MinecraftServer.lookup("play.jellycraft.net")
+        server = MinecraftServer.lookup(bot.minecraft_rcon["host"])
         try:
             query = server.query()
             if len(query.players.names) == 0:
@@ -514,12 +557,12 @@ async def CMD_players(message):
                 embed.description = joinedDesc
 
             await message.channel.send(embed=embed)
-            await message.remove_reaction("⌛", client.user)
-        except:
+            await message.remove_reaction("⌛", bot.client.user)
+        except Exception:
             print("[Status Error Handle] \n" + format_exc())
             embed.description = "Server appears to be offline."
             await message.channel.send(embed=embed)
-            await message.remove_reaction("⌛", client.user)
+            await message.remove_reaction("⌛", bot.client.user)
 
 
 async def is_member_admin(member):
@@ -535,32 +578,33 @@ async def is_member_admin(member):
 
 
 @tasks.loop(seconds=120.0)
-async def COROUTINE_offtopic():
-    off_topic_channel = bot.server.get_channel(817149276786262046)
-    random_emoji = random.choice(bot.random_emojis)
-    print(get_est_time() + " Changing to {}off-topic".format(random_emoji))
-    await off_topic_channel.edit(name="{}off-topic".format(random_emoji))
-    print(get_est_time(), " Changed to {}off-topic".format(random_emoji))
+async def COROUTINE_change_emoji_for_channel():
+    for channel_id in bot.random_emoji_channels:
+        channel = bot.server.get_channel(channel_id)
+        random_emoji = random.choice(bot.random_emojis)
+        name_format = bot.random_emoji_channels[channel_id]
+        new_channel_name = name_format.format(emoji=random_emoji)
+        await channel.edit(name=new_channel_name)
 
 
 @tasks.loop(seconds=2)
 async def COROUTINE_serverstatus():
-    server = MinecraftServer.lookup("play.jellycraft.net")
+    server = MinecraftServer.lookup(bot.minecraft_rcon["host"])
     try:
         status = server.status()
         server_status = "{0}/{1} players".format(status.players.online, status.players.max)
         bot.server_online = True
-    except:
+    except Exception:
         bot.server_online = False
         server_status = "[SERVER IS DOWN]"
     if server_status != bot.server_status:
         bot.server_status = server_status
-        await client.change_presence(activity=discord.Game(name=bot.server_status, type=0))
+        await bot.client.change_presence(activity=discord.Game(name=bot.server_status, type=0))
 
 
 @tasks.loop(seconds=30)
 async def COROUTINE_forceserverstatus():
-    await client.change_presence(activity=discord.Game(name=bot.server_status, type=0))
+    await bot.client.change_presence(activity=discord.Game(name=bot.server_status, type=0))
 
 
 async def INIT_SlashCommands():
@@ -575,7 +619,7 @@ async def INIT_SlashCommands():
 
 
 async def BOTCMD_InGame(message):
-    if message.channel.id != bot.channel_ingame.id or message.author.bot:
+    if message.channel.id != bot.channel_in_game.id or message.author.bot:
         return
     if await should_censor_message(message.content):
         return
@@ -595,15 +639,15 @@ async def BOTCMD_InGame(message):
             username = bot.discord_to_minecraft[message.author.id]["minecraft_username"]
             uuid_obj = await get_minecraft_uuid(username)
             if "id" in uuid_obj:
-                uuid = await FUNC_UUIDConvert(uuid_obj["id"])
-                essentials_profile = await FUNC_GetEssentials(uuid)
+                uuid = await convert_minecraft_uuid(uuid_obj["id"])
+                essentials_profile = await get_essentials_profile(uuid)
                 if essentials_profile != False:
                     display_name = message.author.display_name
                     if "nickname" in essentials_profile:
                         display_name = essentials_profile["nickname"]
                         embed.description = "[{}] {}: {}".format(role, re.sub(r"(§[a-zA-Z0-9])", "", display_name),
                                                                  message.content)
-                    rcon_credentials = bot.config["minecraft_rcon"]
+                    rcon_credentials = bot.minecraft_rcon
                     with Client(rcon_credentials["host"], rcon_credentials["port"],
                                 passwd=rcon_credentials["password"]) as c:
                         c.tellraw("@a", [{"text": "[", "color": "white"}, {"text": role, "color": color},
@@ -627,36 +671,36 @@ async def BOTCMD_InGame(message):
 
             try:
                 await message.author.send(failed_msg)
-            except:
+            except Exception:
                 await message.channel.send(failed_msg)
-    except:
+    except Exception:
         if "mcipc.rcon.errors.NoPlayerFound" not in format_exc():
             error = format_exc()
             await log_error("[Discord-To-Minecraft] " + error)
             try:
                 await message.add_reaction("📡")
                 await message.add_reaction("❌")
-            except:
+            except Exception:
                 pass
         else:
             try:
                 embed.set_footer(text="Note: No players online when this message was sent.")
                 await message.channel.send(embed=embed)
                 await message.delete()
-            except:
+            except Exception:
                 pass
 
 
-async def FUNC_GetEssentials(uuid):
-    args = bot.config["minecraft_ftp"]
+async def get_essentials_profile(uuid):
+    args = bot.minecraft_ftp
     try:
-        with FTP(args["hostname"], args["username"], args["password"]) as ftp:
+        with FTP(args["host"], args["username"], args["password"]) as ftp:
             ftp.cwd("/plugins/Essentials/userdata")
             yml_file = []
             ftp.retrlines("RETR {}.yml".format(uuid), yml_file.append)
             yml_file = "\n".join(yml_file)
             yml_file = yaml.safe_load(yml_file)
-    except:
+    except Exception:
         error = format_exc()
         await log_error("[GetEssentials Error] " + error)
         yml_file = ""
@@ -666,38 +710,40 @@ async def FUNC_GetEssentials(uuid):
         return yml_file
 
 
-async def FUNC_UUIDConvert(input, toDashed=True):
-    input = input.replace("-", "")
-    output = input
-    if toDashed:
+async def convert_minecraft_uuid(uuid, to_dashed=True):
+    uuid = uuid.replace("-", "")
+    output = uuid
+    if to_dashed:
         try:
-            output = "{}-{}-{}-{}-{}".format(input[:8], input[8:12], input[12:16], input[16:20], input[20:])
-        except:
+            output = "{}-{}-{}-{}-{}".format(uuid[:8], uuid[8:12], uuid[12:16], uuid[16:20], uuid[20:])
+        except Exception:
             return False
     return output
 
 
-@client.event
+@bot.client.event
 async def on_message(message):
     if not bot.ready:  # Race condition
         return
-    if message.content.lower().startswith("/off") and message.author.id == 547603829387165708:
+    if message.content.lower().startswith("/off") and message.author.id == bot.owner_id:
         try:
             await message.delete()
-        except:
+        except Exception:
             pass
-        await client.close()
-        await client.logout()
+        await bot.client.close()
+        await bot.client.logout()
         return
     msg2 = message
     msg2.content = msg2.content.replace("@everyone", "@ everyone").replace("@here", "@ here")
     for i in bot.botcommands:
         # Execute every function that starts with BOTCMD_
         await globals()[i](msg2)
-    if message.author == client.user or message.author.bot:
+    if message.author == bot.client.user or message.author.bot:
         return
-    if message.guild == bot.server and message.channel.id not in bot.command_channels and not await is_member_admin(
-            message.author):
+    on_server = message.guild == bot.server
+    not_whitelisted_channel = message.channel.id not in bot.channels_allowing_bot_commands
+    not_admin = not await is_member_admin(message.author)
+    if on_server and not_whitelisted_channel and not_admin:
         return
     # Execute every function that starts with CMD_
     for i in bot.commands:
@@ -705,26 +751,19 @@ async def on_message(message):
 
 
 async def config():
-    bot.server = client.get_guild(806278377333325836)
+    bot.server = bot.client.get_guild(bot.server)
     bot.last_changed_emoji = 0
-    bot.random_emojis = ["🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍅", "🥝", "🥥", "🥭", "🍍", "🍑", "🍒", "🍈",
-                         "🍓", "🍆", "🥑", "🥦", "🥬", "🥒", "🌶", "🌽", "🥖", "🍞", "🥯", "🥐", "🍠", "🥔", "🧅", "🧄",
-                         "🥕", "🥨", "🧀", "🥚", "🍳", "🧈", "🥞", "🧇", "🥓", "🥙", "🥪", "🍕", "🍟", "🍔", "🌭", "🍖",
-                         "🍗", "🥩"]
-    bot.command_channels = [817622634598236180]
-    bot.owner_roles = [808900194144878612, 817133559319363614]
-    bot.channel_console = bot.server.get_channel(817627699518373909)
-    bot.channel_ingame = bot.server.get_channel(817266339327770645)
+    bot.channel_server_console = bot.server.get_channel(bot.channel_server_console)
+    bot.channel_in_game = bot.server.get_channel(bot.channel_in_game)
     bot.server_status = "Querying server..."
 
 
-@client.event
+@bot.client.event
 async def on_ready():
     try:
-        print("[" + get_est_time() + "]")
-        print('BOT_NAME: ' + client.user.name)
-        print('BOT_ID: ' + str(client.user.id))
-        await client.change_presence(activity=discord.Game(name="Loading...", type=0))
+        do_log(f"Bot name: {bot.client.user.name}")
+        do_log(f"Bot ID: {bot.client.user.id}")
+        await bot.client.change_presence(activity=discord.Game(name="Starting bot...", type=0))
         await config()
         bot.commands = [i for i in dir(__import__(__name__)) if i.startswith("CMD_")]
         bot.botcommands = [i for i in dir(__import__(__name__)) if i.startswith("BOTCMD_")]
@@ -734,81 +773,101 @@ async def on_ready():
         bot.addreact = [i for i in dir(__import__(__name__)) if i.startswith("ADDREACT_")]
         for i in bot.initfunctions:
             await globals()[i]()
-        await client.change_presence(activity=discord.Game(name=bot.server_status, type=0))
-        COROUTINE_offtopic.start()
+        await bot.client.change_presence(activity=discord.Game(name=bot.server_status, type=0))
+        COROUTINE_change_emoji_for_channel.start()
         COROUTINE_serverstatus.start()
         COROUTINE_forceserverstatus.start()
-        print("\n\n--READY--")
+        do_log("Ready\n\n")
         bot.ready = True
-
-        # await looper()
-    except:
-        print("\n\n\nCRITICAL ERROR: FAILURE TO INITIALIZE")
-        print(format_exc())
-        await client.close()
-        await client.logout()
+    except Exception:
+        await log_error(f"\n\n\nCRITICAL ERROR: FAILURE TO INITIALIZE{format_exc()}")
+        await bot.client.close()
+        await bot.client.logout()
         exit()
         raise Exception("CRITICAL ERROR: FAILURE TO INITIALIZE")
         return
 
 
-class Varholder:
-    pass
+def load_config_to_bot():
+    parser = argparse.ArgumentParser(description='Discord bot arguments.')
+    parser.add_argument('--config', help='Filepath for the config JSON file', default="config.json")
+    args = parser.parse_args()
+    default_config = {
+        "owner_id": 547603829387165708,
+        "server": 806278377333325836,
+        "channels_allowing_bot_commands": [817622634598236180],
+        "channel_server_console": 817627699518373909,
+        "channel_in_game": 817266339327770645,
+        "random_emoji_channels": {"817149276786262046": "{emoji} off-topic"},
+        "censored_words_startswith": ["censor_test_", "test_censor_"],
+        "censored_words_independent": ["censortest", "testcensor"],
+        "ip_geolocation_api": "https://api.ipgeolocation.io/timezone?apiKey={api_key}&ip={ip_address}",
+        "minecraft_avatar_api": "https://visage.surgeplay.com/front/{uuid}.png",
+        "minecraft_avatar_not_found_url": "https://i.imgur.com/MSg2a9d.jpg",
+        "random_emojis": ["🍏", "🍎", "🍐", "🍊", "🍋"]
+    }
+    try:
+        with open(args.config, "r", encoding="utf-8") as config_file:
+            loaded_config = json_load_eval(config_file)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"'{args.config}' not found. Example Config:\n{json.dumps(default_config)}\n")
+    for config_key in default_config:
+        if config_key not in loaded_config:
+            raise NameError(f"Error in bot configuration, missing value '{config_key}'")
+        loaded_val = loaded_config[config_key]
+        setattr(bot, config_key, loaded_val)
+        del loaded_config[config_key]
+    for config_key in loaded_config:
+        config_val = loaded_config[config_key]
+        setattr(bot, config_key, loaded_val)
+        do_log(f"Loaded extra config setting \n'{config_key}' ({type(config_val).__name__})\n{config_val} ")
 
 
-global bot
+def load_env_vars():
+    load_dotenv(verbose=True)
+    env_vars = {
+        "DISCORD_TOKEN": "",
+        "IPGEOLOCATIONIO_KEY": "",
+        "MINECRAFT_FTP_HOST": "",
+        "MINECRAFT_FTP_PASSWORD": "",
+        "MINECRAFT_FTP_USERNAME": "",
+        "MINECRAFT_RCON_HOST": "",
+        "MINECRAFT_RCON_PASSWORD": "",
+        "MINECRAFT_RCON_PORT": "",
+    }
+    for env_var_name in env_vars:
+        env_var_val = os.getenv(env_var_name)
+        if os.getenv(env_var_name) is None:
+            raise NameError(f"'{env_var_name}' environment variable not found.")
+        env_vars[env_var_name] = env_var_val
+    return env_vars
+
+
+def censor_text(text):  # Censors the second half of a string, minus 4 characters
+    return text[:int(len(text) / 2)] + str("*" * (int(len(text) / 2) - 4)) + text[:4]
 
 
 def main():
     global bot
-    try:
-        import argparse
-        parser = argparse.ArgumentParser(description='Discord bot arguments.')
-        parser.add_argument('--config', help='Filepath for the config JSON file', default="config.json")
-        args = parser.parse_args()
+    bot.ready = False
+    do_log("Loading Config")
 
-        bot = Varholder()
-        bot.ready = False
-        bot_token = None
-        print("Loading Config")
-        default_config = {
-            "token": "discord_bot_token",
-            "censored_words_startswith": ["censored_wor", "test_"],
-            "censored_words_independent": ["censor1", "censor2"],
-            "minecraft_ftp": {"hostname": "ftp_ip_address", "username": "ftp_user", "password": "ftp_pass"},
-            "minecraft_rcon": {"host": "minecraft_ip_address", "port": 25575, "password": "rcon_pass"},
-            "ip_geolocation_api": "https://api.ipgeolocation.io/timezone?apiKey=abcd1234&ip={ip_address}"
-        }
-        try:
-            bot.config_file_name = args.config
-            with open(bot.config_file_name, "r") as f:
-                bot.config = json.load(f)
-            for key in default_config:
-                if key not in bot.config:
-                    raise "Error in bot configuration, missing value '{}'".format(key)
-            bot_token = bot.config["token"]
-            del bot.config["token"]
-            print("Discord Token: {0}".format(
-                bot_token[:int(len(bot_token) / 2)] + str("*" * (int(len(bot_token) / 2) - 4)) + bot_token[:4]))
-            bot.client = client
-            print("Loaded Config")
-        except:
-            print("FAILURE TO READ CONFIG\n{}\nFAILURE TO READ CONFIG".format(format_exc()))
-            raise Exception("FAILURE TO READ CONFIG")
-        print("\n\n--LOGIN--")
-        client.run(bot_token)
-    except Exception as e:
-        print("EXCEPTION \"{0}\"".format(format_exc()))
-    # try:
-    #        await client.close()
-    # except:
-    #        pass
-    # try:
-    #        await client.logout()
-    # except:
-    #        pass
-    print("--FAILURE--")
-    time.sleep(5)
+    load_config_to_bot()  # Load a json to the bot class
+    env_vars = load_env_vars()  # Load the needed environment variables, optionally from a .env file
+
+    # Perform some formatting and parsing with env vars while they're still in scope
+    do_log(f'Discord token: {censor_text(env_vars["DISCORD_TOKEN"])}')
+    bot.minecraft_ftp = {"host": env_vars["MINECRAFT_FTP_HOST"], "username": env_vars["MINECRAFT_FTP_USERNAME"],
+                         "password": env_vars["MINECRAFT_FTP_PASSWORD"]}
+    bot.minecraft_rcon = {"host": env_vars["MINECRAFT_RCON_HOST"], "port": int(env_vars["MINECRAFT_RCON_PORT"]),
+                          "password": env_vars["MINECRAFT_RCON_PASSWORD"]}
+    bot.ip_geolocation_api = bot.ip_geolocation_api.format(api_key=env_vars["IPGEOLOCATIONIO_KEY"],
+                                                           ip_address="{ip_address}")
+    # DiscordPy tasks
+    do_log("Loaded Config")
+    do_log("Logging in")
+    bot.client.run(env_vars["DISCORD_TOKEN"])
+    do_log("Logging out")
 
 
 if __name__ == '__main__':
