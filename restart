@@ -7,5 +7,5 @@ if [[ $VAR1 != *"jellybot-main"* ]]; then
 else
  echo "Bot Inactive."
 fi
-screen -A -m -d -S jellybot-main bash -c "cd $DIR;python3.9 bot.py --config config.json"
+screen -A -m -d -S jellybot-main bash -c "cd $DIR;python3.9 main.py --config config.json"
 echo "Restarted."

@@ -1,2 +1,2 @@
 #!/bin/bash
-screen -list | grep "watchdog_jellybot" && screen -r watchdog_jellybot || screen -A -m -d -S watchdog_jellybot python3.9 bot_watchdog.py
+screen -list | grep "watchdog_jellybot" && screen -r watchdog_jellybot || screen -A -m -d -S watchdog_jellybot python3.9 watchdog.py
