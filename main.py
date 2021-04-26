@@ -275,7 +275,7 @@ async def BOTCMD_censor(message):
         embed.description = f"{message.author.mention}, Please don't use bad language 😟\n"
         embed.description += "Also, please don't attempt to bypass this chat filter or you will get in trouble."
         if message.author.bot:
-            if message.channel.id not in [bot.channel_in_game.id, bot.channel_console.id]:
+            if message.channel.id not in [bot.channel_in_game.id, bot.channel_server_console.id]:
                 embed.description = "Somehow, this bot sent bad language. Please tell a staff member if you identify " \
                                     "the cause. "
                 await message.channel.send(embed=embed)
@@ -333,7 +333,7 @@ async def BOTCMD_discord_verify(message):
             bot.minecraft_to_discord[minecraft_username.lower()] = recipient.id
             with open(bot.file_profile_links, "w") as json_file:
                 json.dump(bot.discord_to_minecraft, json_file, indent=4)
-            await bot.channel_console.send(
+            await bot.channel_server_console.send(
                 "{} ({}#{}) has linked their Minecraft account\n`{}`".format(recipient.mention, recipient.name,
                                                                              recipient.discriminator,
                                                                              minecraft_username))
@@ -621,7 +621,7 @@ async def INIT_SlashCommands():
 async def BOTCMD_InGame(message):
     if message.channel.id != bot.channel_in_game.id or message.author.bot:
         return
-    if await should_censor_message(message.content):
+    if await should_censor_message(message.clean_content):
         return
     if not bot.server_online:
         return
@@ -629,7 +629,8 @@ async def BOTCMD_InGame(message):
     color = "#" + hex(message.author.top_role.color.value).replace("0x", "", 1)
     color = color if color != "#0" else "#FFFFFF"
     role = message.author.top_role.name
-    embed.description = "[{}] {}: {}".format(role, message.author.display_name, message.content)
+    clean_everyone_content = message.clean_content if message.mention_everyone else message.content
+    embed.description = "[{}] {}: {}".format(role, message.author.display_name, clean_everyone_content)
 
     # Client.tellraw("@a", {"text":"Hover me!","hoverEvent":{"action":"show_text","value":"This is a message from Discord"}})
     try:
@@ -646,13 +647,13 @@ async def BOTCMD_InGame(message):
                     if "nickname" in essentials_profile:
                         display_name = essentials_profile["nickname"]
                         embed.description = "[{}] {}: {}".format(role, re.sub(r"(§[a-zA-Z0-9])", "", display_name),
-                                                                 message.content)
+                                                                 clean_everyone_content)
                     rcon_credentials = bot.minecraft_rcon
                     with Client(rcon_credentials["host"], rcon_credentials["port"],
                                 passwd=rcon_credentials["password"]) as c:
                         c.tellraw("@a", [{"text": "[", "color": "white"}, {"text": role, "color": color},
                                          {"text": "] {}".format(display_name)},
-                                         {"text": ": {}".format(message.content), "color": "white"}])
+                                         {"text": ": {}".format(message.clean_content), "color": "white"}])
                         await message.channel.send(embed=embed)
                         await message.delete()
                 else:
@@ -798,12 +799,13 @@ def load_config_to_bot():
         "channels_allowing_bot_commands": [817622634598236180],
         "channel_server_console": 817627699518373909,
         "channel_in_game": 817266339327770645,
-        "random_emoji_channels": {"817149276786262046": "{emoji} off-topic"},
+        "random_emoji_channels": {"817149276786262046": "{emoji}off-topic"},
         "censored_words_startswith": ["censor_test_", "test_censor_"],
         "censored_words_independent": ["censortest", "testcensor"],
         "ip_geolocation_api": "https://api.ipgeolocation.io/timezone?apiKey={api_key}&ip={ip_address}",
         "minecraft_avatar_api": "https://visage.surgeplay.com/front/{uuid}.png",
         "minecraft_avatar_not_found_url": "https://i.imgur.com/MSg2a9d.jpg",
+        "minecraft_name_to_uuid_api": "https://api.mojang.com/users/profiles/minecraft/{name}",
         "random_emojis": ["🍏", "🍎", "🍐", "🍊", "🍋"]
     }
     try:

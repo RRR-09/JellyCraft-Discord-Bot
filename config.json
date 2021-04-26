@@ -4,7 +4,7 @@
 	"channels_allowing_bot_commands": [817622634598236180],
 	"channel_server_console": 817627699518373909,
 	"channel_in_game": 817266339327770645,
-	"random_emoji_channels": {"817149276786262046": "{emoji} off-topic"},
+	"random_emoji_channels": {"817149276786262046": "{emoji}off-topic"},
 	"censored_words_startswith": ["fuck", "fcuk", "fck", "fucc", "nigg", "cunt", "testcensor"],
 	"censored_words_independent": ["nig","niga"],
 	"ip_geolocation_api": "https://api.ipgeolocation.io/timezone?apiKey={api_key}&ip={ip_address}",
