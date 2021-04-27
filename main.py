@@ -618,6 +618,34 @@ async def INIT_SlashCommands():
     pass
 
 
+async def suggest_minecraft_profile_link(user):
+    message = f"{user.mention} Thanks for joining the Discord!\nMake sure to link your Minecraft account for more features by using the ``/discord link`` command in-game!"
+    try:
+        await user.send(message)
+    except:
+        try:
+            await bot.channel_botcmds.send(message)
+        except:
+            error = format_exc()
+            await log_error("[suggest_minecraft_profile_link] " + error)
+            
+
+
+async def BOTCMD_Welcome(message):
+    if message.channel.id != bot.channel_welcome.id or message.author.id == bot.client.user.id or not message.type.name == "new_member":
+        return
+    try:
+        new_member = message.author
+        await message.delete()
+        embed = Embed()
+        embed.description = f"Welcome to the server, {new_member.mention}!"
+        await message.channel.send(embed=embed)
+    except:
+        error = format_exc()
+        await log_error("[Welcome] " + error)
+    await suggest_minecraft_profile_link(new_member)
+        
+        
 async def BOTCMD_InGame(message):
     if message.channel.id != bot.channel_in_game.id or message.author.bot:
         return
