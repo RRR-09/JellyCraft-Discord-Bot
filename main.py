@@ -607,6 +607,32 @@ async def COROUTINE_forceserverstatus():
     await bot.client.change_presence(activity=discord.Game(name=bot.server_status, type=0))
 
 
+@tasks.loop(seconds=60)
+async def COROUTINE_nicknamesync():
+    found = 0
+    needed_change = 0
+    changed = 0
+    for discord_id in bot.discord_to_minecraft:
+        profile = bot.discord_to_minecraft[discord_id]
+        member = bot.server.get_member(discord_id)
+        if member is None:
+            print(f"[NameSync] Missing discord user\n{profile}")
+            continue
+        found += 1
+        if discord_id in bot.nickname_sync_bypass:
+            continue
+        minecraft_name = profile["minecraft_username"]
+        if member.display_name.lower() != minecraft_name.lower():
+            needed_change += 1
+            try:
+                await member.edit(nick=minecraft_name)
+                changed += 1
+            except:
+                error = format_exc()
+                await log_error(f"[COROUTINE_nicknamesync] {member.display_name} / {minecraft_name}\n" + error)
+    print(f"[NameSync] {found}/{len(bot.discord_to_minecraft)} found, {changed}/{needed_change} changed")
+
+
 async def INIT_SlashCommands():
     # discord_slash.utils.manage_commands.add_slash_command(bot_id, bot_token: str, guild_id, cmd_name: str, description: str, options: Optional[list] = None)
     # await discord_slash.utils.manage_commands.remove_all_commands_in(bot.client.user.id, bot.token, guild_id=None)
@@ -784,6 +810,8 @@ async def config():
     bot.last_changed_emoji = 0
     bot.channel_server_console = bot.server.get_channel(bot.channel_server_console)
     bot.channel_in_game = bot.server.get_channel(bot.channel_in_game)
+    bot.channel_welcome = bot.server.get_channel(bot.channel_welcome)
+    bot.channel_botcmds = bot.server.get_channel(bot.channel_botcmds)
     bot.server_status = "Querying server..."
 
 
@@ -806,6 +834,7 @@ async def on_ready():
         COROUTINE_change_emoji_for_channel.start()
         COROUTINE_serverstatus.start()
         COROUTINE_forceserverstatus.start()
+        COROUTINE_nicknamesync.start()
         do_log("Ready\n\n")
         bot.ready = True
     except Exception:
@@ -821,36 +850,15 @@ def load_config_to_bot():
     parser = argparse.ArgumentParser(description='Discord bot arguments.')
     parser.add_argument('--config', help='Filepath for the config JSON file', default="config.json")
     args = parser.parse_args()
-    default_config = {
-        "owner_id": 547603829387165708,
-        "server": 806278377333325836,
-        "channels_allowing_bot_commands": [817622634598236180],
-        "channel_server_console": 817627699518373909,
-        "channel_in_game": 817266339327770645,
-        "random_emoji_channels": {"817149276786262046": "{emoji}off-topic"},
-        "censored_words_startswith": ["censor_test_", "test_censor_"],
-        "censored_words_independent": ["censortest", "testcensor"],
-        "ip_geolocation_api": "https://api.ipgeolocation.io/timezone?apiKey={api_key}&ip={ip_address}",
-        "minecraft_avatar_api": "https://visage.surgeplay.com/front/{uuid}.png",
-        "minecraft_avatar_not_found_url": "https://i.imgur.com/MSg2a9d.jpg",
-        "minecraft_name_to_uuid_api": "https://api.mojang.com/users/profiles/minecraft/{name}",
-        "random_emojis": ["🍏", "🍎", "🍐", "🍊", "🍋"]
-    }
     try:
         with open(args.config, "r", encoding="utf-8") as config_file:
             loaded_config = json_load_eval(config_file)
     except FileNotFoundError:
-        raise FileNotFoundError(f"'{args.config}' not found. Example Config:\n{json.dumps(default_config)}\n")
-    for config_key in default_config:
-        if config_key not in loaded_config:
-            raise NameError(f"Error in bot configuration, missing value '{config_key}'")
+        raise FileNotFoundError(f"'{args.config}' not found.")
+    for config_key in loaded_config:
         loaded_val = loaded_config[config_key]
         setattr(bot, config_key, loaded_val)
-        del loaded_config[config_key]
-    for config_key in loaded_config:
-        config_val = loaded_config[config_key]
-        setattr(bot, config_key, loaded_val)
-        do_log(f"Loaded extra config setting \n'{config_key}' ({type(config_val).__name__})\n{config_val} ")
+        do_log(f"Loaded config setting \n'{config_key}' ({type(loaded_val).__name__})\n{loaded_val} ")
 
 
 def load_env_vars():
