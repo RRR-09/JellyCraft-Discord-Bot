@@ -209,8 +209,8 @@ async def cmd_forge(message):
             await message.delete()
         else:
             await log_error(
-                "[{}] ERROR: Attempted forge, but \"{}\" has no \"Manage Guild\" permissions".format(get_est_time(),
-                                                                                                     message.author.id))
+                f"[{get_est_time()}] ERROR: Attempted forge, but \"{message.author.id}\" has no \"Manage Guild\" "
+                f"permissions")
 
 
 async def is_mod_chat(channel):
@@ -314,7 +314,7 @@ async def init_discord_verify():
             discord_id = int(discord_id)
             member = bot.server.get_member(discord_id)
             if member is not None:
-                discord_username = "{}#{}".format(member.name, member.discriminator)
+                discord_username = f"{member.name}#{member.discriminator}"
             bot.discord_to_minecraft[discord_id] = {"minecraft_username": minecraft_username,
                                                     "discord_username": discord_username}
             bot.minecraft_to_discord[minecraft_username.lower()] = discord_id
@@ -332,25 +332,28 @@ async def bot_cmd_discord_verify(message):
         return
     recipient = message.channel.recipient
     minecraft_username = msg_split[1].split(" ")[0]
-    bot.discord_to_minecraft[recipient.id] = {"minecraft_username": minecraft_username,
-                                              "discord_username": "{}#{}".format(recipient.name,
-                                                                                 recipient.discriminator)}
+    bot.discord_to_minecraft[recipient.id] = {
+        "minecraft_username": minecraft_username,
+        "discord_username": f"{recipient.name}#{recipient.discriminator}"
+    }
     existing = minecraft_username.lower() in bot.minecraft_to_discord
     bot.minecraft_to_discord[minecraft_username.lower()] = recipient.id
     with open(bot.file_profile_links, "w") as json_file:
         json.dump(bot.discord_to_minecraft, json_file, indent=4)
     await bot.channels["server_console"].send(
-        "{} ({}#{}) has linked their Minecraft account\n`{}`".format(recipient.mention, recipient.name,
-                                                                     recipient.discriminator,
-                                                                     minecraft_username))
+        f"{recipient.mention} ({recipient.name}#{recipient.discriminator}) has linked their Minecraft account\n"
+        f"`{minecraft_username}`"
+    )
 
     if not existing:
         rcon_credentials = bot.minecraft_rcon
         with Client(rcon_credentials["host"], rcon_credentials["port"], passwd=rcon_credentials["password"]) as c:
             c.run(f"crazycrate give physical Boost 1 {minecraft_username}")
-        await recipient.send("For verifying, you have been given 1 Boost key!\nIf you do not see it, please run the "
-                             "``/keys`` command to see if you have a virtual key.\nIf you did not receive a key, "
-                             "please contact staff.")
+        await recipient.send(
+            "For verifying, you have been given 1 Boost key!\n"
+            "If you do not see it, please run the ``/keys`` command to see if you have a virtual key.\n"
+            "If you did not receive a key, please contact staff."
+        )
 
     try:
         recipient_member = bot.server.get_member(recipient.id)
@@ -379,7 +382,7 @@ async def update_player_info(discord_id=None, minecraft_target=None):
     if discord_id is not None:
         member = bot.server.get_member(discord_id)
         if member is not None:  # Member in server, update info
-            discord_username = "{}#{}".format(member.name, member.discriminator)
+            discord_username = f"{member.name}#{member.discriminator}"
             discord_profile = bot.discord_to_minecraft[discord_id]
             discord_profile["discord_username"] = discord_username
             bot.discord_to_minecraft[discord_id] = discord_profile
@@ -488,8 +491,7 @@ async def cmd_player_info(message):
                 search_type = "Discord"
                 target = await find_server_member(discord_id=discord_target)
                 target = discord_target if target is None else target.display_name
-            embed.description = "**Could not find any player information for {} user \"**{}**\"!**".format(search_type,
-                                                                                                           target)
+            embed.description = f"**Could not find any player information for {search_type} user \"**{target}**\"!**"
         await message.channel.send(embed=embed)
         await message.remove_reaction("⌛", bot.client.user)
         return
@@ -499,8 +501,7 @@ async def cmd_player_info(message):
             embed.description = "**Could not find you as a Discord user in the Discord server!**\nSomething might be " \
                                 "wrong... "
         else:
-            embed.description = "**Could not find Discord user **{}** in the Discord server!**".format(
-                "\"" + discord_target + "\"")
+            embed.description = f"**Could not find Discord user **\"{discord_target}\"** in the Discord server!**"
         await message.channel.send(embed=embed)
         await message.remove_reaction("⌛", bot.client.user)
         return
@@ -508,7 +509,7 @@ async def cmd_player_info(message):
     if profile["discord_username"] == "N/A":
         discord_user_entry = "N/A"
     elif profile["discord"] == "N/A" and (not profile["discord_username"].endswith(" (Left Discord)")):
-        discord_user_entry = "<@{}>".format(profile["discord"])
+        discord_user_entry = f"<@{profile['discord']}>"
     else:
         discord_user_entry = profile["discord_username"]
     embed.add_field(name="Discord", value=discord_user_entry)
@@ -531,8 +532,8 @@ async def cmd_player_info(message):
             ip = profile["essentials"]["ipAddress"]
             try:
                 r = requests.get(bot.ip_geolocation_api.format(ip_address=ip)).json()
-                ip_local_time = r["time_12"].replace(" ", ":").split(":")
-                local_time = "{}:{} {}\n*({})*".format(ip_local_time[0], ip_local_time[1], ip_local_time[3], r["date"])
+                local_hour, local_minute, local_am_pm = r["time_12"].replace(" ", ":").split(":")
+                local_time = f"{local_hour}:{local_minute} {local_am_pm}\n*({r['date']})*"
             except Exception:
                 error = format_exc()
                 await log_error("[IPTimeZone Error] " + error)
@@ -593,7 +594,7 @@ async def is_member_admin(member):
         member_id = member
         member = bot.server.get_member(member)
         if member is None:
-            await log_error("[{}] ERROR: Could not find member \"{}\".".format(get_est_time(), member_id))
+            await log_error(f"[{get_est_time()}] ERROR: Could not find member \"{member_id}\".")
             return False
     if not member.guild_permissions.manage_guild:
         return False
@@ -615,7 +616,7 @@ async def coroutine_server_status():
     server = MinecraftServer.lookup(bot.minecraft_rcon["host"])
     try:
         status = server.status()
-        server_status = "{0}/{1} players".format(status.players.online, status.players.max)
+        server_status = f"{status.players.online}/{status.players.max} players"
         bot.server_online = True
     except Exception:
         bot.server_online = False
@@ -658,7 +659,7 @@ async def coroutine_nickname_sync():
                         try:
                             color_char_index = true_name.index("§")
                             if color_char_index != -1:
-                                color_to_remove = true_name[color_char_index:color_char_index+2]
+                                color_to_remove = true_name[color_char_index:color_char_index + 2]
                                 true_name = true_name.replace(color_to_remove, "")
                         except Exception:
                             print(format_exc())
@@ -696,7 +697,7 @@ async def get_paypal_transactions_from_gmail():
                                                                                     "Received", 1)[0].strip()
                         html = str(msg.get_payload(decode=True).decode())
                         minecraft_username = html.split("Minecraft Username: ", 1)[-1].split("</span>", 1)[0].strip()
-                        cart_details = html.split("<span><strong>Payment</strong></span>",1)[-1].split("</tr>",1)[0]
+                        cart_details = html.split("<span><strong>Payment</strong></span>", 1)[-1].split("</tr>", 1)[0]
                         amount_paid = cart_details.split("<span>$", 1)[-1].split("</span>", 1)[0].strip()
                         purchases.append({
                             "username": minecraft_username,
@@ -750,7 +751,7 @@ async def process_store_item(username, item):
     host, port, passwd = rcon_credentials["host"], rcon_credentials["port"], rcon_credentials["password"]
     with Client(host, port, passwd=passwd) as rcon:
         rcon.tellraw("@a", [
-            {"text": "[JellyCraft Store] ", "color": "green"}, 
+            {"text": "[JellyCraft Store] ", "color": "green"},
             {"text": username, "color": "white", "bold": "true"},
             {"text": " has purchased ", "color": "white"},
             {"text": lookup["friendly_name"], "color": "white", "bold": "true"},
@@ -772,7 +773,7 @@ async def log_store_transaction(username, item, amount_paid):
     try:
         numerical_amount_paid = float(amount_paid.replace("$", "").split(" ", 1)[0])  # "$10.53 USD" -> 10.53
     except Exception:
-        await log_error("[log_store_transaction]\n"+format_exc())
+        await log_error("[log_store_transaction]\n" + format_exc())
         return
 
     desired_timezone = pytz.timezone("America/Toronto")
@@ -814,7 +815,7 @@ async def coroutine_check_paypal():
     if not success:
         error_message = data
         failed_message = f"__[{get_est_time()}]__\nFailed to check PayPal transactions!\n```py\n{error_message}```"
-        #await bot.channels["transactions"].send(failed_message)
+        await bot.channels["transactions"].send(failed_message)
         print(failed_message)
         return
     for purchase in data:
@@ -857,7 +858,7 @@ async def coroutine_update_site():
     webserver_file_name = f"{current_est_time.year}-{current_est_time.month}.txt"
 
     file_name = f"{current_est_time.year}-{current_est_time.month}.json"
-    file_monthly_store_log = os.path.join("store_log",file_name)
+    file_monthly_store_log = os.path.join("store_log", file_name)
 
     current_raised = 0
     try:
@@ -916,7 +917,7 @@ async def bot_cmd_ingame_chat(message):
     color = color if color != "#0" else "#FFFFFF"
     role = message.author.top_role.name
     clean_everyone_content = message.clean_content if message.mention_everyone else message.content
-    embed.description = "[{}] {}: {}".format(role, message.author.display_name, clean_everyone_content)
+    embed.description = f"[{role}] {message.author.display_name}: {clean_everyone_content}"
 
     try:
         failed = False
@@ -931,23 +932,23 @@ async def bot_cmd_ingame_chat(message):
                     display_name = message.author.display_name
                     if essentials_profile is not None and "nickname" in essentials_profile:
                         display_name = essentials_profile["nickname"]
-                        embed.description = "[{}] {}: {}".format(role, re.sub(r"(§[a-zA-Z0-9])", "", display_name),
-                                                                 clean_everyone_content)
+                        clean_display_name = re.sub(r"(§[a-zA-Z0-9])", "", display_name)
+                        embed.description = f"[{role}] {clean_display_name}: {clean_everyone_content}"
                     rcon_credentials = bot.minecraft_rcon
                     with Client(rcon_credentials["host"], rcon_credentials["port"],
                                 passwd=rcon_credentials["password"]) as c:
                         c.tellraw("@a", [{"text": "[", "color": "white"}, {"text": role, "color": color},
-                                         {"text": "] {}".format(display_name)},
-                                         {"text": ": {}".format(message.clean_content), "color": "white"}])
+                                         {"text": f"] {display_name}"},
+                                         {"text": f": {message.clean_content}", "color": "white"}])
                         await message.channel.send(embed=embed)
                         await message.delete()
                 else:
                     failed = True
-                    failed_msg = "Could not find Essentials Profile based on Minecraft UUID ({}) of username ({})!".format(
-                        uuid, username)
+                    failed_msg = f"Could not find Essentials Profile based on Minecraft UUID ({uuid}) " \
+                                 f"of username ({username})! "
             else:
                 failed = True
-                failed_msg = "Could not find UUID based on Minecraft username {}!".format(username)
+                failed_msg = f"Could not find UUID based on Minecraft username {username}!"
         else:
             failed = True
             failed_msg = "Could not find your username!\nHave you linked your discord on the Minecraft server?"
@@ -983,7 +984,7 @@ async def get_essentials_profile(uuid):
         with FTP(args["host"], args["username"], args["password"]) as ftp:
             ftp.cwd("/plugins/Essentials/userdata")
             yml_file = []
-            ftp.retrlines("RETR {}.yml".format(uuid), yml_file.append)
+            ftp.retrlines(f"RETR {uuid}.yml", yml_file.append)
             yml_file = "\n".join(yml_file)
             yml_file = yaml.safe_load(yml_file)
     except Exception:
@@ -1001,7 +1002,7 @@ async def convert_minecraft_uuid(uuid, to_dashed=True):
     output = uuid
     if to_dashed:
         try:
-            output = "{}-{}-{}-{}-{}".format(uuid[:8], uuid[8:12], uuid[12:16], uuid[16:20], uuid[20:])
+            output = f"{uuid[:8]}-{uuid[8:12]}-{uuid[12:16]}-{uuid[16:20]}-{uuid[20:]}"
         except Exception:
             return False
     return output
