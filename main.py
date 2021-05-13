@@ -692,14 +692,12 @@ async def get_paypal_transactions_from_gmail():
                     msg = email.message_from_bytes(response_part[1])
                     email_subject = msg['subject']
                     if "Notification of Payment Received" in email_subject:
-                        msg_content = str(data[0][1])
-                        # Mail seems to have plaintext and HTML versions, simple way to get the second HTML part
-                        minecraft_username = msg_content.split("Minecraft Username: ", 1)[-1]
-                        minecraft_username = minecraft_username.split("Minecraft Username: =\\r\\n", 1)[-1]
-                        minecraft_username = minecraft_username.split("</span>", 1)[0]
                         item_purchased = email_subject.split("Item #", 1)[-1].split("- Notification of Payment "
                                                                                     "Received", 1)[0].strip()
-                        amount_paid = msg_content.split("Total* $", 1)[-1].split("\\r\\n", 1)[0]
+                        html = str(msg.get_payload(decode=True).decode())
+                        minecraft_username = html.split("Minecraft Username: ", 1)[-1].split("</span>", 1)[0].strip()
+                        cart_details = html.split("<span><strong>Payment</strong></span>",1)[-1].split("</tr>",1)[0]
+                        amount_paid = cart_details.split("<span>$", 1)[-1].split("</span>", 1)[0].strip()
                         purchases.append({
                             "username": minecraft_username,
                             "item_purchased": item_purchased,
@@ -774,7 +772,7 @@ async def log_store_transaction(username, item, amount_paid):
     try:
         numerical_amount_paid = float(amount_paid.replace("$", "").split(" ", 1)[0])  # "$10.53 USD" -> 10.53
     except Exception:
-        await log_error("log_store_transaction\n"+format_exc())
+        await log_error("[log_store_transaction]\n"+format_exc())
         return
 
     desired_timezone = pytz.timezone("America/Toronto")
