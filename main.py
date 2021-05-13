@@ -698,7 +698,7 @@ async def get_paypal_transactions_from_gmail():
                         minecraft_username = minecraft_username.split("Minecraft Username: =\\r\\n", 1)[-1]
                         minecraft_username = minecraft_username.split("</span>", 1)[0]
                         item_purchased = email_subject.split("Item #", 1)[-1].split("- Notification of Payment "
-                                                                                    "Received", 1)[0]
+                                                                                    "Received", 1)[0].strip()
                         amount_paid = msg_content.split("Total* $", 1)[-1].split("\\r\\n", 1)[0]
                         purchases.append({
                             "username": minecraft_username,
