@@ -11,6 +11,8 @@ from datetime import datetime
 from ftplib import FTP
 from traceback import format_exc
 import argparse
+import imaplib
+import email
 # endregion
 
 # region External Libraries
@@ -29,6 +31,7 @@ import requests  # pip install requests
 from mcstatus import MinecraftServer  # pip install mcstatus
 import yaml  # pip install PyYaml
 from mcipc.rcon.je import Client  # pip3.9 install mcipc
+import pysftp  # pip3.9 install pysftp
 
 
 # endregion
@@ -325,22 +328,38 @@ async def INIT_discord_verify():
 
 
 async def BOTCMD_discord_verify(message):
-    if message.guild is None and message.author.id == bot.client.user.id:
-        msg_split = message.content.split("Your Discord account has been linked to ", 1)
-        if len(msg_split) > 1:
-            recipient = message.channel.recipient
-            minecraft_username = msg_split[1].split(" ")[0]
-            bot.discord_to_minecraft[recipient.id] = {"minecraft_username": minecraft_username,
-                                                      "discord_username": "{}#{}".format(recipient.name,
-                                                                                         recipient.discriminator)}
-            bot.minecraft_to_discord[minecraft_username.lower()] = recipient.id
-            with open(bot.file_profile_links, "w") as json_file:
-                json.dump(bot.discord_to_minecraft, json_file, indent=4)
-            await bot.channel_server_console.send(
-                "{} ({}#{}) has linked their Minecraft account\n`{}`".format(recipient.mention, recipient.name,
-                                                                             recipient.discriminator,
-                                                                             minecraft_username))
-
+    if message.guild is not None or message.author.id != bot.client.user.id:
+        return
+    msg_split = message.content.split("Your Discord account has been linked to ", 1)
+    if len(msg_split) <= 1:
+        return
+    recipient = message.channel.recipient
+    minecraft_username = msg_split[1].split(" ")[0]
+    bot.discord_to_minecraft[recipient.id] = {"minecraft_username": minecraft_username,
+                                              "discord_username": "{}#{}".format(recipient.name,
+                                                                                 recipient.discriminator)}
+    existing = minecraft_username.lower() in bot.minecraft_to_discord
+    bot.minecraft_to_discord[minecraft_username.lower()] = recipient.id
+    with open(bot.file_profile_links, "w") as json_file:
+        json.dump(bot.discord_to_minecraft, json_file, indent=4)
+    await bot.channel_server_console.send(
+        "{} ({}#{}) has linked their Minecraft account\n`{}`".format(recipient.mention, recipient.name,
+                                                                     recipient.discriminator,
+                                                                     minecraft_username))
+    
+    if not existing:
+        rcon_credentials = bot.minecraft_rcon
+        with Client(rcon_credentials["host"], rcon_credentials["port"], passwd=rcon_credentials["password"]) as c:
+            c.run(f"crazycrate give physical Boost 1 {minecraft_username}")
+        await recipient.send("For verifying, you have been given 1 Boost key!\nIf you do not see it, please run the ``/keys`` command to see if you have a virtual key.\nIf you did not receive a key, please contact staff.")
+    
+    try:
+        recipient_member = bot.server.get_member(recipient.id)
+        await recipient_member.add_roles(bot.role_player)
+        await recipient_member.remove_roles(bot.role_guest)
+    except Exception:
+        await log_error(format_exc())
+    
 
 async def get_minecraft_uuid(minecraft_name):
     response = requests.get(bot.minecraft_name_to_uuid_api.format(name=minecraft_name))
@@ -610,7 +629,7 @@ async def COROUTINE_forceserverstatus():
     await bot.client.change_presence(activity=discord.Game(name=bot.server_status, type=0))
 
 
-@tasks.loop(seconds=60)
+@tasks.loop(seconds=300)
 async def COROUTINE_nicknamesync():
     found = 0
     needed_change = 0
@@ -625,10 +644,28 @@ async def COROUTINE_nicknamesync():
         if discord_id in bot.nickname_sync_bypass:
             continue
         minecraft_name = profile["minecraft_username"]
-        if member.display_name.lower() != minecraft_name.lower():
+        true_name = minecraft_name
+        uuid_obj = await get_minecraft_uuid(minecraft_name)
+        if "id" in uuid_obj:
+            uuid = await convert_minecraft_uuid(uuid_obj["id"])
+            essentials_profile = await get_essentials_profile(uuid)
+            if essentials_profile != False:
+                if "nickname" in essentials_profile:
+                    true_name = essentials_profile["nickname"]
+                    color_tag_count = true_name.count("§")
+                    for i in range(color_tag_count):
+                        try:
+                            color_char_index = true_name.index("§")
+                            if color_char_index != -1:
+                                color_to_remove = true_name[color_char_index:color_char_index+2]
+                                true_name = true_name.replace(color_to_remove, "")
+                        except:
+                            print(format_exc())
+                            pass
+        if member.display_name.lower() != true_name.lower():
             needed_change += 1
             try:
-                await member.edit(nick=minecraft_name)
+                await member.edit(nick=true_name)
                 changed += 1
             except:
                 error = format_exc()
@@ -636,6 +673,187 @@ async def COROUTINE_nicknamesync():
     print(f"[NameSync] {found}/{len(bot.discord_to_minecraft)} found, {changed}/{needed_change} changed")
 
 
+async def get_paypal_transactions_from_gmail():
+    try:
+        purchases = []
+        mail = imaplib.IMAP4_SSL('imap.gmail.com')
+        mail.login('jellycraftpaypal@gmail.com','PT$M9qBX9up^%3')
+
+        mail.select('Paypal')
+
+        result, data = mail.search(None, 'UnSeen') #Find "Unread" emails
+        mail_ids = data[0]
+        for mail_id in mail_ids.split():
+            current_mail_id = str(int(mail_id)) #It's weird like that
+            result, data = mail.fetch(current_mail_id, "(RFC822)")
+            for response_part in data:
+                if isinstance(response_part, tuple):
+                    # from_bytes, not from_string
+                    msg = email.message_from_bytes(response_part[1])
+                    email_from = msg['from']
+                    email_subject = msg['subject']
+                    if "Notification of Payment Received" in email_subject:
+                        msg_content = str(data[0][1])
+                        #Mail seems to have plaintext and HTML versions, simple way to get the second HTML part
+                        minecraft_username = msg_content.split("Minecraft Username: ",1)[-1].split("Minecraft Username: =\\r\\n",1)[-1].split("</span>",1)[0]
+                        item_purchased = email_subject.split("Item #",1)[-1].split(" - Notification of Payment Received",1)[0]
+                        amount_paid = msg_content.split("Total* $",1)[-1].split("\\r\\n",1)[0]
+                        purchases.append({"username": minecraft_username, "item_purchased": item_purchased, "amount_paid": amount_paid})
+                        mail.store(current_mail_id,'+FLAGS','\Seen') #Mark as "Read"
+        mail.close()
+        mail.logout()
+        return True, purchases
+    except:
+        return False, format_exc()
+
+
+async def INIT_Store():
+    bot.file_store_lookup = "store_lookup.json"
+    bot.store_lookup = {}
+    try:
+        with open(bot.file_store_lookup, "r") as json_file:
+            bot.store_lookup = json.load(json_file)
+    except FileNotFoundError:
+        bot.store_lookup["Test3"] = {"friendlyname": "Test Item", "commands": [
+            "crazycrate give physical Fortune 1 {username}",
+            "crazycrate give physical Fortune 1 {username}"
+        ]}
+        with open(bot.file_store_lookup, "w") as json_file:
+            json.dump(bot.store_lookup, json_file, indent=4)
+
+async def process_store_item(username, item):
+    lookup = bot.store_lookup[item]
+    print(f"[Process Store Item] {username} | {item} | {lookup}")
+    rcon_credentials = bot.minecraft_rcon
+    with Client(rcon_credentials["host"], rcon_credentials["port"], passwd=rcon_credentials["password"]) as c:
+        """c.tellraw("@a", 
+        [
+            {"text": "[JellyCraft Store] ", "color": "green"}, 
+            {"text": username, "color": "white", "bold": "true"},
+            {"text": " has purchased ", "color": "white"},
+            {"text": lookup["friendlyname"], "color": "white", "bold": "true"},
+            {"text": "!", "color": "white"}
+        ])"""
+        for cmd in lookup["commands"]:
+            cmd_formatted = cmd.format(username=username)
+            print(cmd_formatted)
+            c.run(cmd_formatted)
+            if cmd != cmd_formatted:
+                player_online = False
+                server = MinecraftServer.lookup(bot.minecraft_rcon["host"])
+                try:
+                    query = server.query()
+                    if len(query.players.names) != 0:
+                        for player in query.players.names:
+                            if username.strip().lower() == player.strip().lower():
+                                player_online = True
+                                break
+                except:
+                    print(format_exc())
+                if not player_online:
+                    friendlyname = lookup["friendlyname"]
+                    message = f"Thanks for your purchase of {friendlyname}!"
+                    if "key" in friendlyname.lower():
+                        message += " Since you were offline, it has been made virtual. Type /keys to see all your keys."
+                    c.run(f"mail {username} {message}")
+
+
+async def log_store_transaction(username, item, amount_paid):
+    numerical_amount_paid = 0
+    try:
+        numerical_amount_paid = float(amount_paid.replace("$","").split(" ",1)[0])
+    except:
+        await log_error("log_store_transaction\n"+format_exc())
+        return
+    
+    desired_timezone = pytz.timezone("America/Toronto")
+    current_est_time = datetime.now(desired_timezone)
+    file_name = f"{current_est_time.year}-{current_est_time.month}.json"
+    file_monthly_store_log = os.path.join("store_log",file_name)
+    
+    item_lookup = bot.store_lookup[item]
+    friendly_item_name = item_lookup["friendlyname"]
+    
+    log_entry = {
+        "timestamp": time.time(), 
+        "friendly_time": get_est_time(), 
+        "username": username, 
+        "item_code": item, 
+        "item_name": friendly_item_name,
+        "amount_paid_text": amount_paid, 
+        "amount_paid_numerical": numerical_amount_paid
+    }
+    
+    bot.monthly_store_log = []
+    try:
+        with open(file_monthly_store_log, "r") as json_file:
+            bot.monthly_store_log = json.load(json_file)
+    except FileNotFoundError:
+        pass
+        
+    bot.monthly_store_log.append(log_entry)
+    with open(file_monthly_store_log, "w") as json_file:
+        json.dump(bot.monthly_store_log, json_file, indent=4)
+
+    await bot.channel_transactions.send(f"__[{log_entry['friendly_time']}]__\n``{username}`` bought ``{friendly_item_name}``\n${amount_paid}")
+    
+    
+@tasks.loop(seconds=30)
+async def COROUTINE_checkPaypal():
+    success, data = await get_paypal_transactions_from_gmail()
+    if not success:
+        print(data)
+        await bot.channel_transactions.send(f"__[{get_est_time()}]__\nFailed to check PayPal transactions!\n```py\n{data}```")
+        return
+    for purchase in data:
+        username = purchase["username"]
+        item = purchase["item_purchased"]
+        amount_paid = purchase["amount_paid"]
+        await log_store_transaction(username, item, amount_paid)
+        
+        await process_store_item(username, item)
+
+
+async def upload_monthly_fundraising_progress(amount, file_name):
+    args = bot.website_sftp
+    try:
+        cnopts = pysftp.CnOpts()
+        cnopts.hostkeys = None   
+        with pysftp.Connection(host=args["host"], username=args["username"], password=args["password"], cnopts=cnopts) as sftp:
+            sftp.cwd(f"/var/www/jellycraft.net/html/store/goals/")  # The full path
+            upload_file_path = os.path.join("store_log", file_name)
+            with open(upload_file_path, "w") as f:
+                f.write(str(amount))
+            sftp.put(upload_file_path)
+        await asyncio.sleep(5)
+        if os.path.exists(upload_file_path):
+            os.remove(upload_file_path)
+    except:
+        await log_error(f"[upload_monthly_fundraising_progress]\n{format_exc()}")
+        
+        
+@tasks.loop(seconds=30)
+async def COROUTINE_updateSite():
+    desired_timezone = pytz.timezone("America/Toronto")
+    current_est_time = datetime.now(desired_timezone)
+    webserver_file_name = f"{current_est_time.year}-{current_est_time.month}.txt"
+    
+    file_name = f"{current_est_time.year}-{current_est_time.month}.json"
+    file_monthly_store_log = os.path.join("store_log",file_name)
+    
+    current_raised = 0
+    try:
+        with open(file_monthly_store_log, "r") as json_file:
+            bot.monthly_store_log = json.load(json_file)
+        
+        for purchased_item in bot.monthly_store_log:
+            current_raised += float(purchased_item["amount_paid_numerical"])
+    except FileNotFoundError:
+        pass
+    
+    await upload_monthly_fundraising_progress(current_raised, webserver_file_name)
+        
+        
 async def INIT_SlashCommands():
     # discord_slash.utils.manage_commands.add_slash_command(bot_id, bot_token: str, guild_id, cmd_name: str, description: str, options: Optional[list] = None)
     # await discord_slash.utils.manage_commands.remove_all_commands_in(bot.client.user.id, bot.token, guild_id=None)
@@ -651,14 +869,13 @@ async def suggest_minecraft_profile_link(user):
     message = f"{user.mention} Thanks for joining the Discord!\nMake sure to link your Minecraft account for more features by using the ``/discord link`` command in-game!"
     try:
         await user.send(message)
-    except:
+    except Exception:
         try:
             await bot.channel_botcmds.send(message)
-        except:
+        except Exception:
             error = format_exc()
             await log_error("[suggest_minecraft_profile_link] " + error)
             
-
 
 async def BOTCMD_Welcome(message):
     if message.channel.id != bot.channel_welcome.id or message.author.id == bot.client.user.id or not message.type.name == "new_member":
@@ -667,12 +884,12 @@ async def BOTCMD_Welcome(message):
         new_member = message.author
         await message.delete()
         embed = Embed()
-        embed.description = f"Welcome to the server, {new_member.mention}!"
+        embed.description = f"Welcome to the server, {new_member.display_name}#{new_member.discriminator}!"
         await message.channel.send(embed=embed)
+        await suggest_minecraft_profile_link(new_member)
     except:
         error = format_exc()
         await log_error("[Welcome] " + error)
-    await suggest_minecraft_profile_link(new_member)
         
         
 async def BOTCMD_InGame(message):
@@ -689,7 +906,6 @@ async def BOTCMD_InGame(message):
     clean_everyone_content = message.clean_content if message.mention_everyone else message.content
     embed.description = "[{}] {}: {}".format(role, message.author.display_name, clean_everyone_content)
 
-    # Client.tellraw("@a", {"text":"Hover me!","hoverEvent":{"action":"show_text","value":"This is a message from Discord"}})
     try:
         failed = False
         failed_msg = "Unknown Error!"
@@ -701,7 +917,7 @@ async def BOTCMD_InGame(message):
                 essentials_profile = await get_essentials_profile(uuid)
                 if essentials_profile != False:
                     display_name = message.author.display_name
-                    if "nickname" in essentials_profile:
+                    if essentials_profile is not None and "nickname" in essentials_profile:
                         display_name = essentials_profile["nickname"]
                         embed.description = "[{}] {}: {}".format(role, re.sub(r"(§[a-zA-Z0-9])", "", display_name),
                                                                  clean_everyone_content)
@@ -815,6 +1031,7 @@ async def config():
     bot.channel_in_game = bot.server.get_channel(bot.channel_in_game)
     bot.channel_welcome = bot.server.get_channel(bot.channel_welcome)
     bot.channel_botcmds = bot.server.get_channel(bot.channel_botcmds)
+    bot.channel_transactions = bot.server.get_channel(bot.channel_transactions)
     bot.server_status = "Querying server..."
     bot.role_aid = bot.server.get_role(817297406759534612)
     bot.role_guest = bot.server.get_role(817134137067438112)
@@ -841,6 +1058,8 @@ async def on_ready():
         COROUTINE_serverstatus.start()
         COROUTINE_forceserverstatus.start()
         COROUTINE_nicknamesync.start()
+        COROUTINE_checkPaypal.start()
+        COROUTINE_updateSite.start()
         do_log("Ready\n\n")
         bot.ready = True
     except Exception:
@@ -878,6 +1097,9 @@ def load_env_vars():
         "MINECRAFT_RCON_HOST": "",
         "MINECRAFT_RCON_PASSWORD": "",
         "MINECRAFT_RCON_PORT": "",
+        "WEBSITE_SFTP_HOST": "",
+        "WEBSITE_SFTP_PASSWORD": "",
+        "WEBSITE_SFTP_USERNAME": "",
     }
     for env_var_name in env_vars:
         env_var_val = os.getenv(env_var_name)
@@ -907,6 +1129,8 @@ def main():
                           "password": env_vars["MINECRAFT_RCON_PASSWORD"]}
     bot.ip_geolocation_api = bot.ip_geolocation_api.format(api_key=env_vars["IPGEOLOCATIONIO_KEY"],
                                                            ip_address="{ip_address}")
+    bot.website_sftp = {"host": env_vars["WEBSITE_SFTP_HOST"], "username": env_vars["WEBSITE_SFTP_USERNAME"],
+                         "password": env_vars["WEBSITE_SFTP_PASSWORD"]}
     # DiscordPy tasks
     do_log("Loaded Config")
     do_log("Logging in")

@@ -6,6 +6,7 @@
 	"channel_in_game": 817266339327770645,
 	"channel_welcome": 817142495812649020,
     "channel_botcmds": 817622634598236180,
+    "channel_transactions": 817611018095296579,
     "nickname_sync_bypass": [140562263470899200],
 	"random_emoji_channels": {"817149276786262046": "{emoji}off-topic"},
 	"censored_words_startswith": ["fuck", "fcuk", "fck", "fucc", "nigg", "cunt", "testcensor"],
