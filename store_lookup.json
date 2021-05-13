@@ -1,0 +1,89 @@
+{
+    "Test3": {
+        "friendlyname": "Test Keys",
+        "commands": [
+            "crazycrate give physical Fortune 1 {username}",
+            "crazycrate give physical Fortune 1 {username}"
+        ]
+    },
+    
+    
+    "Membership_1Month": {
+        "friendlyname": "1 Month Membership",
+        "commands": [
+            "set access {username} member"
+        ]
+    },
+    "Membership_Permanant": {
+        "friendlyname": "Permanant Membership",
+        "commands": [
+            "set access {username} member"
+        ]
+    },
+    
+    
+    "Fortune3": {
+        "friendlyname": "Fortune Crate Key (x3)",
+        "commands": [
+            "crazycrate give physical Fortune 3 {username}"
+        ]
+    },
+    "Fortune6": {
+        "friendlyname": "Fortune Crate Key (x6)",
+        "commands": [
+            "crazycrate give physical Fortune 6 {username}",
+            "crazycrate giveall physical Boost 1"
+        ]
+    },
+    "Fortune10": {
+        "friendlyname": "Fortune Crate Key (x10)",
+        "commands": [
+            "crazycrate give physical Fortune 10 {username}",
+            "crazycrate giveall physical Boost 2"
+        ]
+    },
+    
+    
+    "Magic3": {
+        "friendlyname": "Magic Crate Key (x3)",
+        "commands": [
+            "crazycrate give physical Magic 3 {username}"
+        ]
+    },
+    "Magic6": {
+        "friendlyname": "Magic Crate Key (x6)",
+        "commands": [
+            "crazycrate give physical Magic 6 {username}",
+            "crazycrate giveall physical Boost 1"
+        ]
+    },
+    "Magic10": {
+        "friendlyname": "Magic Crate Key (x10)",
+        "commands": [
+            "crazycrate give physical Magic 10 {username}",
+            "crazycrate giveall physical Boost 2"
+        ]
+    },
+    
+    
+    "Legendary3": {
+        "friendlyname": "Legendary Crate Key (x3)",
+        "commands": [
+            "crazycrate give physical Legendary 3 {username}"
+        ]
+    },
+    "Legendary6": {
+        "friendlyname": "Legendary Crate Key (x6)",
+        "commands": [
+            "crazycrate give physical Legendary 6 {username}",
+            "crazycrate giveall physical Boost 1"
+        ]
+    },
+    "Legendary10": {
+        "friendlyname": "Legendary Crate Key (x10)",
+        "commands": [
+            "crazycrate give physical Legendary 10 {username}",
+            "crazycrate giveall physical Boost 2"
+        ]
+    }
+}
