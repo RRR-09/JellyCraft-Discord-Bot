@@ -1,4 +1,4 @@
-#About
+# About
 A contracted Discord bot for a Minecraft Server. Uses a prototyping overhead framework instead of discord.py standard command and event framework. Pending rewrite to standard discord.py format.
 
 
