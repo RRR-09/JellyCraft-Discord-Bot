@@ -35,9 +35,12 @@ from mcipc.rcon.je import Client  # pip3.9 install mcipc
 
 # region Global Functions/Properties
 def get_est_time(time_provided=None):
-    if time_provided is None:
-        time_provided = datetime.now()
-    return pytz.timezone('US/Eastern').localize(time_provided).strftime("%Y-%b-%d %I:%M:%S %p EST")
+    desired_timezone = pytz.timezone("America/Toronto")
+    if time_provided is not None:
+        do_log("GET_EST_TIME ERROR, PLEASE IMPLEMENT CONVERTER")
+        return "ERROR"
+    else:
+        return datetime.now(desired_timezone).strftime("%Y-%b-%d %I:%M:%S %p EST")
 
 
 def do_log(message):
@@ -220,7 +223,7 @@ async def is_mod_chat(channel):
             break
     if not everyone_can_see:
         aids_cant_see = True
-        for overwrite in channel.overwrites_for(bot.server.get_role(817297406759534612)):
+        for overwrite in channel.overwrites_for(bot.role_aid):
             if overwrite[0] == "read_messages":
                 # print("aids cant see: {}".format(overwrite[1]))
                 aids_cant_see = overwrite[1] is None or overwrite[1] == False
@@ -233,7 +236,7 @@ async def is_mod_chat(channel):
 async def INIT_censor():
     bot.uncensored_channels = []
     for channel in bot.server.text_channels:
-        if await is_mod_chat(channel):
+        if await is_mod_chat(channel) or (bot.censored_channels_bypass is not None and channel.id in bot.censored_channels_bypass):
             bot.uncensored_channels.append(channel.id)
 
 
@@ -813,6 +816,9 @@ async def config():
     bot.channel_welcome = bot.server.get_channel(bot.channel_welcome)
     bot.channel_botcmds = bot.server.get_channel(bot.channel_botcmds)
     bot.server_status = "Querying server..."
+    bot.role_aid = bot.server.get_role(817297406759534612)
+    bot.role_guest = bot.server.get_role(817134137067438112)
+    bot.role_player = bot.server.get_role(808900317638426676)
 
 
 @bot.client.event
