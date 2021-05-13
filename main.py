@@ -2,7 +2,6 @@
 import json
 import logging
 import math
-import mimetypes
 import os
 import random
 import re
@@ -37,6 +36,10 @@ import pysftp  # pip3.9 install pysftp
 # endregion
 
 # region Global Functions/Properties
+def censor_text(text):  # Censors the second half of a string, minus 4 characters
+    return text[:int(len(text) / 2)] + str("*" * (int(len(text) / 2) - 4)) + text[:4]
+
+
 def get_est_time(time_provided=None):
     desired_timezone = pytz.timezone("America/Toronto")
     if time_provided is not None:
@@ -83,7 +86,7 @@ async def log_error(error):
     do_log(error_message)
 
 
-def json_eval_object_pairs_hook(ordered_pairs):
+def json_eval_object_pairs_hook(ordered_pairs):  # Necessary function for json_load_eval
     special = {
         "true": True,
         "false": False,
@@ -105,11 +108,11 @@ def json_eval_object_pairs_hook(ordered_pairs):
     return result
 
 
-def json_load_eval(fp_obj):
+def json_load_eval(fp_obj):  # Loads a json evaluating any strings to possible variables
     return json.load(fp_obj, object_pairs_hook=json_eval_object_pairs_hook)
 
 
-async def find_server_member(message=None, discord_id=None):
+async def find_server_member(message=None, discord_id=None):  # todo: Clean this up
     message_copy = message
     if message_copy is None:
         message_copy = VarHolder()
@@ -180,11 +183,6 @@ async def find_server_member(message=None, discord_id=None):
     return user
 
 
-def do_side_thread(loop):
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
-
-
 @bot.client.event
 async def on_error(event, args="", kwargs=""):
     error = format_exc()
@@ -192,7 +190,6 @@ async def on_error(event, args="", kwargs=""):
 
 
 # endregion
-
 async def get_hook_in_server(message):
     hooks = await message.channel.webhooks()
     found_hook = None
@@ -205,7 +202,7 @@ async def get_hook_in_server(message):
     return found_hook
 
 
-async def CMD_forge(message):
+async def cmd_forge(message):
     if message.content.lower().startswith("/forge"):
         if await is_member_admin(message.author):
             await message.channel.send(message.content.replace("/forge ", "", 1))
@@ -218,44 +215,45 @@ async def CMD_forge(message):
 
 async def is_mod_chat(channel):
     # print(channel.name.encode("ascii","ignore").decode("ascii","ignore"))
-    everyone_can_see = True
+    not_everyone_can_see = False
     for overwrite in channel.overwrites_for(bot.server.default_role):
-        if overwrite[0] == "read_messages":
-            # print("everyone_can_see: {}".format(overwrite[1]))
-            everyone_can_see = overwrite[1] is None or overwrite[1] != False
+        permission_name, permission_value = overwrite[0], overwrite[1]
+        if permission_name == "read_messages":
+            not_everyone_can_see = permission_value is not True
             break
-    if not everyone_can_see:
-        aids_cant_see = True
-        for overwrite in channel.overwrites_for(bot.role_aid):
-            if overwrite[0] == "read_messages":
-                # print("aids cant see: {}".format(overwrite[1]))
-                aids_cant_see = overwrite[1] is None or overwrite[1] == False
+    if not_everyone_can_see:
+        aids_cant_see = False
+        for overwrite in channel.overwrites_for(bot.roles["aid"]):
+            permission_name, permission_value = overwrite[0], overwrite[1]
+            if permission_name == "read_messages":
+                aids_cant_see = permission_value is not True
                 break
         if aids_cant_see:
             return True
     return False
 
 
-async def INIT_censor():
+async def init_censor():
     bot.uncensored_channels = []
     for channel in bot.server.text_channels:
-        if await is_mod_chat(channel) or (bot.censored_channels_bypass is not None and channel.id in bot.censored_channels_bypass):
+        do_not_censor = bot.channels_without_censoring is not None and channel.id in bot.channels_without_censoring
+        if do_not_censor or await is_mod_chat(channel):
             bot.uncensored_channels.append(channel.id)
 
 
 @bot.client.event
 async def on_guild_channel_update(before, after):
-    await INIT_censor()
+    await init_censor()
 
 
 @bot.client.event
-async def on_guild_channel_create(before, after):
-    await INIT_censor()
+async def on_guild_channel_create(channel):
+    await init_censor()
 
 
 @bot.client.event
-async def on_guild_channel_delete(before, after):
-    await INIT_censor()
+async def on_guild_channel_delete(channel):
+    await init_censor()
 
 
 async def should_censor_message(text):
@@ -271,7 +269,7 @@ async def should_censor_message(text):
     return censor
 
 
-async def BOTCMD_censor(message):
+async def bot_cmd_censor(message):
     if message.channel.id in bot.uncensored_channels:
         return
     if await should_censor_message(message.content):
@@ -281,7 +279,7 @@ async def BOTCMD_censor(message):
         embed.description = f"{message.author.mention}, Please don't use bad language 😟\n"
         embed.description += "Also, please don't attempt to bypass this chat filter or you will get in trouble."
         if message.author.bot:
-            if message.channel.id not in [bot.channel_in_game.id, bot.channel_server_console.id]:
+            if message.channel.id not in [bot.channels["in_game"].id, bot.channels["server_console"].id]:
                 embed.description = "Somehow, this bot sent bad language. Please tell a staff member if you identify " \
                                     "the cause. "
                 await message.channel.send(embed=embed)
@@ -293,8 +291,7 @@ async def BOTCMD_censor(message):
                 await message.channel.send(embed=embed)
 
 
-
-async def INIT_profiles():
+async def init_profiles():
     bot.file_profiles = "profiles.json"
     bot.minecraft_profiles = {}
     try:
@@ -304,7 +301,7 @@ async def INIT_profiles():
         await save_player_info()
 
 
-async def INIT_discord_verify():
+async def init_discord_verify():
     bot.file_profile_links = "profile_links.json"
     bot.discord_to_minecraft = {}
     bot.minecraft_to_discord = {}
@@ -327,7 +324,7 @@ async def INIT_discord_verify():
         json.dump(bot.discord_to_minecraft, json_file, indent=4)
 
 
-async def BOTCMD_discord_verify(message):
+async def bot_cmd_discord_verify(message):
     if message.guild is not None or message.author.id != bot.client.user.id:
         return
     msg_split = message.content.split("Your Discord account has been linked to ", 1)
@@ -342,24 +339,26 @@ async def BOTCMD_discord_verify(message):
     bot.minecraft_to_discord[minecraft_username.lower()] = recipient.id
     with open(bot.file_profile_links, "w") as json_file:
         json.dump(bot.discord_to_minecraft, json_file, indent=4)
-    await bot.channel_server_console.send(
+    await bot.channels["server_console"].send(
         "{} ({}#{}) has linked their Minecraft account\n`{}`".format(recipient.mention, recipient.name,
                                                                      recipient.discriminator,
                                                                      minecraft_username))
-    
+
     if not existing:
         rcon_credentials = bot.minecraft_rcon
         with Client(rcon_credentials["host"], rcon_credentials["port"], passwd=rcon_credentials["password"]) as c:
             c.run(f"crazycrate give physical Boost 1 {minecraft_username}")
-        await recipient.send("For verifying, you have been given 1 Boost key!\nIf you do not see it, please run the ``/keys`` command to see if you have a virtual key.\nIf you did not receive a key, please contact staff.")
-    
+        await recipient.send("For verifying, you have been given 1 Boost key!\nIf you do not see it, please run the "
+                             "``/keys`` command to see if you have a virtual key.\nIf you did not receive a key, "
+                             "please contact staff.")
+
     try:
         recipient_member = bot.server.get_member(recipient.id)
-        await recipient_member.add_roles(bot.role_player)
-        await recipient_member.remove_roles(bot.role_guest)
+        await recipient_member.add_roles(bot.roles["player"])
+        await recipient_member.remove_roles(bot.roles["guest"])
     except Exception:
         await log_error(format_exc())
-    
+
 
 async def get_minecraft_uuid(minecraft_name):
     response = requests.get(bot.minecraft_name_to_uuid_api.format(name=minecraft_name))
@@ -460,7 +459,7 @@ async def get_english_timestamp(time_var):
     return "{} day{}, {} hour{}".format(days, "s" if days != 1 else "", hours, "s" if hours != 1 else "")
 
 
-async def CMD_pinfo(message):
+async def cmd_player_info(message):
     if not message.content.lower().startswith("/pinfo"):
         return
     await message.add_reaction("⌛")
@@ -479,7 +478,8 @@ async def CMD_pinfo(message):
     profile = await get_player_info(discord_target=discord_target, minecraft_target=minecraft_target)
     if profile is None:
         if len(args) == 1:
-            embed.description = "**Could not find any player information on you!**\nHave you registered with the in-game command \"/discordsrv link\"?"
+            embed.description = "**Could not find any player information on you!**\nHave you registered with the " \
+                                "in-game command \"/discordsrv link\"? "
         else:
             if minecraft_target is not None:
                 search_type = "Minecraft"
@@ -496,7 +496,8 @@ async def CMD_pinfo(message):
     # todo: rewrite the logic so pycharm doesn't give a breaking suggestion
     elif profile == False:
         if len(args) == 1:
-            embed.description = "**Could not find you as a Discord user in the Discord server!**\nSomething might be wrong..."
+            embed.description = "**Could not find you as a Discord user in the Discord server!**\nSomething might be " \
+                                "wrong... "
         else:
             embed.description = "**Could not find Discord user **{}** in the Discord server!**".format(
                 "\"" + discord_target + "\"")
@@ -525,29 +526,29 @@ async def CMD_pinfo(message):
         except Exception:
             pass
         profile["essentials"] = await get_essentials_profile(profile["uuid"])
-        localTime = None
+        local_time = None
         if profile["essentials"] is not False and "ipAddress" in profile["essentials"]:
             ip = profile["essentials"]["ipAddress"]
             try:
                 r = requests.get(bot.ip_geolocation_api.format(ip_address=ip)).json()
-                iptime = r["time_12"].replace(" ", ":").split(":")
-                localTime = "{}:{} {}\n*({})*".format(iptime[0], iptime[1], iptime[3], r["date"])
+                ip_local_time = r["time_12"].replace(" ", ":").split(":")
+                local_time = "{}:{} {}\n*({})*".format(ip_local_time[0], ip_local_time[1], ip_local_time[3], r["date"])
             except Exception:
                 error = format_exc()
                 await log_error("[IPTimeZone Error] " + error)
-        embed.add_field(name="Local Time", value=localTime if localTime is not None else "ERROR")
+        embed.add_field(name="Local Time", value=local_time if local_time is not None else "ERROR")
 
         if profile["essentials"] is not False and "timestamps" in profile["essentials"]:
             if player_online:
                 online = profile["essentials"]["timestamps"]["login"] / 1000
                 online = time.time() - online
-                playTime = await get_english_timestamp(online)
-                embed.add_field(name="Playing since", value=playTime + " ago" if playTime is not None else "ERROR")
+                play_time = await get_english_timestamp(online)
+                embed.add_field(name="Playing since", value=play_time + " ago" if play_time is not None else "ERROR")
             else:
                 offline = profile["essentials"]["timestamps"]["logout"] / 1000
                 offline = time.time() - offline
-                lastPlayed = await get_english_timestamp(offline)
-                embed.add_field(name="Last Played", value=lastPlayed + " ago" if lastPlayed is not None else "ERROR")
+                last_played = await get_english_timestamp(offline)
+                embed.add_field(name="Last Played", value=last_played + " ago" if last_played is not None else "ERROR")
         else:
             embed.add_field(name="Playtime/Offline Since", value="ERROR")
 
@@ -555,7 +556,7 @@ async def CMD_pinfo(message):
     await message.channel.send(embed=embed)
 
 
-async def CMD_players(message):
+async def cmd_players(message):
     if message.content.lower().startswith("/players"):
         await message.add_reaction("⌛")
         embed = Embed()
@@ -566,17 +567,17 @@ async def CMD_players(message):
             if len(query.players.names) == 0:
                 embed.description = "No players online."
             else:
-                descriptionRows = []
+                description_rows = []
                 for player in query.players.names:
-                    joinedDesc = "\n".join(descriptionRows)
-                    if len(joinedDesc) > 1850:
-                        embed.description = joinedDesc
+                    joined_description = "\n".join(description_rows)
+                    if len(joined_description) > 1850:
+                        embed.description = joined_description
                         await message.channel.send(embed=embed)
-                        descriptionRows = []
+                        description_rows = []
                         embed.title = ""
-                    descriptionRows.append(player)
-                joinedDesc = "\n".join(descriptionRows)
-                embed.description = joinedDesc
+                    description_rows.append(player)
+                joined_description = "\n".join(description_rows)
+                embed.description = joined_description
 
             await message.channel.send(embed=embed)
             await message.remove_reaction("⌛", bot.client.user)
@@ -600,7 +601,7 @@ async def is_member_admin(member):
 
 
 @tasks.loop(seconds=120.0)
-async def COROUTINE_change_emoji_for_channel():
+async def coroutine_change_emoji_for_channel():
     for channel_id in bot.random_emoji_channels:
         channel = bot.server.get_channel(channel_id)
         random_emoji = random.choice(bot.random_emojis)
@@ -610,7 +611,7 @@ async def COROUTINE_change_emoji_for_channel():
 
 
 @tasks.loop(seconds=2)
-async def COROUTINE_serverstatus():
+async def coroutine_server_status():
     server = MinecraftServer.lookup(bot.minecraft_rcon["host"])
     try:
         status = server.status()
@@ -625,12 +626,12 @@ async def COROUTINE_serverstatus():
 
 
 @tasks.loop(seconds=30)
-async def COROUTINE_forceserverstatus():
+async def coroutine_force_server_status():
     await bot.client.change_presence(activity=discord.Game(name=bot.server_status, type=0))
 
 
 @tasks.loop(seconds=300)
-async def COROUTINE_nicknamesync():
+async def coroutine_nickname_sync():
     found = 0
     needed_change = 0
     changed = 0
@@ -641,7 +642,7 @@ async def COROUTINE_nicknamesync():
             print(f"[NameSync] Missing discord user\n{profile}")
             continue
         found += 1
-        if discord_id in bot.nickname_sync_bypass:
+        if discord_id in bot.user_ids_to_skip_nickname_sync:
             continue
         minecraft_name = profile["minecraft_username"]
         true_name = minecraft_name
@@ -659,7 +660,7 @@ async def COROUTINE_nicknamesync():
                             if color_char_index != -1:
                                 color_to_remove = true_name[color_char_index:color_char_index+2]
                                 true_name = true_name.replace(color_to_remove, "")
-                        except:
+                        except Exception:
                             print(format_exc())
                             pass
         if member.display_name.lower() != true_name.lower():
@@ -667,9 +668,9 @@ async def COROUTINE_nicknamesync():
             try:
                 await member.edit(nick=true_name)
                 changed += 1
-            except:
+            except Exception:
                 error = format_exc()
-                await log_error(f"[COROUTINE_nicknamesync] {member.display_name} / {minecraft_name}\n" + error)
+                await log_error(f"[coroutine_nicknamesync] {member.display_name} / {minecraft_name}\n" + error)
     print(f"[NameSync] {found}/{len(bot.discord_to_minecraft)} found, {changed}/{needed_change} changed")
 
 
@@ -677,208 +678,222 @@ async def get_paypal_transactions_from_gmail():
     try:
         purchases = []
         mail = imaplib.IMAP4_SSL('imap.gmail.com')
-        mail.login('jellycraftpaypal@gmail.com','PT$M9qBX9up^%3')
+        mail.login(os.getenv("PAYPAL_EMAIL"), os.getenv("PAYPAL_PASSWORD"))
 
         mail.select('Paypal')
 
-        result, data = mail.search(None, 'UnSeen') #Find "Unread" emails
+        result, data = mail.search(None, 'UnSeen')  # Find "Unread" emails
         mail_ids = data[0]
         for mail_id in mail_ids.split():
-            current_mail_id = str(int(mail_id)) #It's weird like that
+            current_mail_id = str(int(mail_id))  # Need to verify this is necessary
             result, data = mail.fetch(current_mail_id, "(RFC822)")
             for response_part in data:
                 if isinstance(response_part, tuple):
-                    # from_bytes, not from_string
                     msg = email.message_from_bytes(response_part[1])
-                    email_from = msg['from']
                     email_subject = msg['subject']
                     if "Notification of Payment Received" in email_subject:
                         msg_content = str(data[0][1])
-                        #Mail seems to have plaintext and HTML versions, simple way to get the second HTML part
-                        minecraft_username = msg_content.split("Minecraft Username: ",1)[-1].split("Minecraft Username: =\\r\\n",1)[-1].split("</span>",1)[0]
-                        item_purchased = email_subject.split("Item #",1)[-1].split(" - Notification of Payment Received",1)[0]
-                        amount_paid = msg_content.split("Total* $",1)[-1].split("\\r\\n",1)[0]
-                        purchases.append({"username": minecraft_username, "item_purchased": item_purchased, "amount_paid": amount_paid})
-                        mail.store(current_mail_id,'+FLAGS','\Seen') #Mark as "Read"
+                        # Mail seems to have plaintext and HTML versions, simple way to get the second HTML part
+                        minecraft_username = msg_content.split("Minecraft Username: ", 1)[-1]
+                        minecraft_username = minecraft_username.split("Minecraft Username: =\\r\\n", 1)[-1]
+                        minecraft_username = minecraft_username.split("</span>", 1)[0]
+                        item_purchased = email_subject.split("Item #", 1)[-1].split("- Notification of Payment "
+                                                                                    "Received", 1)[0]
+                        amount_paid = msg_content.split("Total* $", 1)[-1].split("\\r\\n", 1)[0]
+                        purchases.append({
+                            "username": minecraft_username,
+                            "item_purchased": item_purchased,
+                            "amount_paid": amount_paid
+                        })
+                        # mail.store(current_mail_id, '+FLAGS', '\Seen') #Mark as "Read"
         mail.close()
         mail.logout()
         return True, purchases
-    except:
+    except Exception:
         return False, format_exc()
 
 
-async def INIT_Store():
+async def init_store():
     bot.file_store_lookup = "store_lookup.json"
     bot.store_lookup = {}
     try:
         with open(bot.file_store_lookup, "r") as json_file:
             bot.store_lookup = json.load(json_file)
     except FileNotFoundError:
-        bot.store_lookup["Test3"] = {"friendlyname": "Test Item", "commands": [
+        # Test item
+        bot.store_lookup["Test3"] = {"friendly_name": "Test Item", "commands": [
             "crazycrate give physical Fortune 1 {username}",
             "crazycrate give physical Fortune 1 {username}"
         ]}
         with open(bot.file_store_lookup, "w") as json_file:
             json.dump(bot.store_lookup, json_file, indent=4)
 
+
+async def is_player_online(username):
+    player_online = False
+    server = MinecraftServer.lookup(bot.minecraft_rcon["host"])  #
+    try:
+        query = server.query()
+        if len(query.players.names) != 0:
+            for player in query.players.names:
+                if username.strip().lower() == player.strip().lower():
+                    player_online = True
+                    break
+    except Exception:
+        print(format_exc())
+        return False
+    return player_online
+
+
 async def process_store_item(username, item):
     lookup = bot.store_lookup[item]
     print(f"[Process Store Item] {username} | {item} | {lookup}")
     rcon_credentials = bot.minecraft_rcon
-    with Client(rcon_credentials["host"], rcon_credentials["port"], passwd=rcon_credentials["password"]) as c:
-        """c.tellraw("@a", 
-        [
+    host, port, passwd = rcon_credentials["host"], rcon_credentials["port"], rcon_credentials["password"]
+    with Client(host, port, passwd=passwd) as rcon:
+        rcon.tellraw("@a", [
             {"text": "[JellyCraft Store] ", "color": "green"}, 
             {"text": username, "color": "white", "bold": "true"},
             {"text": " has purchased ", "color": "white"},
-            {"text": lookup["friendlyname"], "color": "white", "bold": "true"},
+            {"text": lookup["friendly_name"], "color": "white", "bold": "true"},
             {"text": "!", "color": "white"}
-        ])"""
+        ])
         for cmd in lookup["commands"]:
             cmd_formatted = cmd.format(username=username)
-            print(cmd_formatted)
-            c.run(cmd_formatted)
-            if cmd != cmd_formatted:
-                player_online = False
-                server = MinecraftServer.lookup(bot.minecraft_rcon["host"])
-                try:
-                    query = server.query()
-                    if len(query.players.names) != 0:
-                        for player in query.players.names:
-                            if username.strip().lower() == player.strip().lower():
-                                player_online = True
-                                break
-                except:
-                    print(format_exc())
-                if not player_online:
-                    friendlyname = lookup["friendlyname"]
-                    message = f"Thanks for your purchase of {friendlyname}!"
-                    if "key" in friendlyname.lower():
+            rcon.run(cmd_formatted)
+            if cmd != cmd_formatted:  # If we've had to substitute a username, which we can assume is a targeted cmd,
+                if not await is_player_online(username):
+                    friendly_name = lookup["friendly_name"]
+                    message = f"Thanks for your purchase of {friendly_name}!"
+                    if "key" in friendly_name.lower():
                         message += " Since you were offline, it has been made virtual. Type /keys to see all your keys."
-                    c.run(f"mail {username} {message}")
+                    rcon.run(f"mail {username} {message}")
 
 
 async def log_store_transaction(username, item, amount_paid):
-    numerical_amount_paid = 0
     try:
-        numerical_amount_paid = float(amount_paid.replace("$","").split(" ",1)[0])
-    except:
+        numerical_amount_paid = float(amount_paid.replace("$", "").split(" ", 1)[0])  # "$10.53 USD" -> 10.53
+    except Exception:
         await log_error("log_store_transaction\n"+format_exc())
         return
-    
+
     desired_timezone = pytz.timezone("America/Toronto")
     current_est_time = datetime.now(desired_timezone)
     file_name = f"{current_est_time.year}-{current_est_time.month}.json"
-    file_monthly_store_log = os.path.join("store_log",file_name)
-    
+    file_monthly_store_log = os.path.join("store_log", file_name)
+
     item_lookup = bot.store_lookup[item]
-    friendly_item_name = item_lookup["friendlyname"]
-    
+    friendly_item_name = item_lookup["friendly_name"]
+
     log_entry = {
-        "timestamp": time.time(), 
-        "friendly_time": get_est_time(), 
-        "username": username, 
-        "item_code": item, 
+        "timestamp": time.time(),
+        "friendly_time": get_est_time(),
+        "username": username,
+        "item_code": item,
         "item_name": friendly_item_name,
-        "amount_paid_text": amount_paid, 
+        "amount_paid_text": amount_paid,
         "amount_paid_numerical": numerical_amount_paid
     }
-    
+
     bot.monthly_store_log = []
     try:
         with open(file_monthly_store_log, "r") as json_file:
             bot.monthly_store_log = json.load(json_file)
     except FileNotFoundError:
         pass
-        
+
     bot.monthly_store_log.append(log_entry)
     with open(file_monthly_store_log, "w") as json_file:
         json.dump(bot.monthly_store_log, json_file, indent=4)
 
-    await bot.channel_transactions.send(f"__[{log_entry['friendly_time']}]__\n``{username}`` bought ``{friendly_item_name}``\n${amount_paid}")
-    
-    
+    log_message = f"__[{log_entry['friendly_time']}]__\n``{username}`` bought ``{friendly_item_name}``\n${amount_paid}"
+    await bot.channels["transactions"].send(log_message)
+
+
 @tasks.loop(seconds=30)
-async def COROUTINE_checkPaypal():
+async def coroutine_check_paypal():
     success, data = await get_paypal_transactions_from_gmail()
     if not success:
-        print(data)
-        await bot.channel_transactions.send(f"__[{get_est_time()}]__\nFailed to check PayPal transactions!\n```py\n{data}```")
+        error_message = data
+        failed_message = f"__[{get_est_time()}]__\nFailed to check PayPal transactions!\n```py\n{error_message}```"
+        #await bot.channels["transactions"].send(failed_message)
+        print(failed_message)
         return
     for purchase in data:
         username = purchase["username"]
         item = purchase["item_purchased"]
         amount_paid = purchase["amount_paid"]
         await log_store_transaction(username, item, amount_paid)
-        
         await process_store_item(username, item)
 
 
 async def upload_monthly_fundraising_progress(amount, file_name):
     args = bot.website_sftp
+    host, username, password = args["host"], args["username"], args["password"]
+
+    # Create the folder if it doesn't exist, and (over)write the file with the amount specified
+    store_log_folder = "store_log"
+    if not os.path.exists(store_log_folder):
+        os.mkdir(store_log_folder)
+    upload_file_path = os.path.join(store_log_folder, file_name)
+    with open(upload_file_path, "w") as f:
+        f.write(str(amount))
+
     try:
-        cnopts = pysftp.CnOpts()
-        cnopts.hostkeys = None   
-        with pysftp.Connection(host=args["host"], username=args["username"], password=args["password"], cnopts=cnopts) as sftp:
-            sftp.cwd(f"/var/www/jellycraft.net/html/store/goals/")  # The full path
-            upload_file_path = os.path.join("store_log", file_name)
-            with open(upload_file_path, "w") as f:
-                f.write(str(amount))
+        opts = pysftp.CnOpts()
+        opts.hostkeys = None  # Force insecure, Todo: Use keys and make secure
+        with pysftp.Connection(host=host, username=username, password=password, cnopts=opts) as sftp:
+            sftp.cwd(f"/var/www/jellycraft.net/html/store/goals/")
             sftp.put(upload_file_path)
-        await asyncio.sleep(5)
-        if os.path.exists(upload_file_path):
-            os.remove(upload_file_path)
-    except:
+            # Remove the temporary file we made Todo: Upload binary without creating temp files
+            if os.path.exists(upload_file_path):
+                os.remove(upload_file_path)
+    except Exception:
         await log_error(f"[upload_monthly_fundraising_progress]\n{format_exc()}")
-        
-        
+
+
 @tasks.loop(seconds=30)
-async def COROUTINE_updateSite():
+async def coroutine_update_site():
     desired_timezone = pytz.timezone("America/Toronto")
     current_est_time = datetime.now(desired_timezone)
     webserver_file_name = f"{current_est_time.year}-{current_est_time.month}.txt"
-    
+
     file_name = f"{current_est_time.year}-{current_est_time.month}.json"
     file_monthly_store_log = os.path.join("store_log",file_name)
-    
+
     current_raised = 0
     try:
         with open(file_monthly_store_log, "r") as json_file:
             bot.monthly_store_log = json.load(json_file)
-        
+
         for purchased_item in bot.monthly_store_log:
             current_raised += float(purchased_item["amount_paid_numerical"])
     except FileNotFoundError:
         pass
-    
+
     await upload_monthly_fundraising_progress(current_raised, webserver_file_name)
-        
-        
-async def INIT_SlashCommands():
-    # discord_slash.utils.manage_commands.add_slash_command(bot_id, bot_token: str, guild_id, cmd_name: str, description: str, options: Optional[list] = None)
-    # await discord_slash.utils.manage_commands.remove_all_commands_in(bot.client.user.id, bot.token, guild_id=None)
-    # await discord_slash.utils.manage_commands.remove_all_commands_in(bot.client.user.id, bot.token, guild_id=None)
-    # await discord_slash.utils.manage_commands.add_slash_command(bot.client.user.id, bot.token, None, "players", "List the players currently on the Minecraft server", None)
-    # discord_slash.utils.manage_commands.create_option(name: str, description: str, option_type: Union[int, type], required: bool, choices: Optional[list] = None)
-    # await discord_slash.utils.manage_commands.create_option(name="Discord Ping", description: "A mention like @DiscordName", option_type: Union[int, type], required: False, choices: Optional[list] = None)
-    # await discord_slash.utils.manage_commands.add_slash_command(bot.client.user.id, bot.token, None, "pinfo", "Gets info about a player", None)
-    pass
 
 
 async def suggest_minecraft_profile_link(user):
-    message = f"{user.mention} Thanks for joining the Discord!\nMake sure to link your Minecraft account for more features by using the ``/discord link`` command in-game!"
+    message = f"{user.mention} Thanks for joining the Discord!\nMake sure to link your Minecraft account for more " \
+              f"features by using the ``/discord link`` command in-game! "
     try:
         await user.send(message)
-    except Exception:
+    except Exception:  # User has DMs blocked
         try:
-            await bot.channel_botcmds.send(message)
-        except Exception:
+            await bot.channels["bot_spam"].send(message)
+        except Exception:  # Failed to send a message for some reason
             error = format_exc()
             await log_error("[suggest_minecraft_profile_link] " + error)
-            
 
-async def BOTCMD_Welcome(message):
-    if message.channel.id != bot.channel_welcome.id or message.author.id == bot.client.user.id or not message.type.name == "new_member":
+
+async def bot_cmd_welcome(message):
+    # Continue if message is not from bot, in welcome channel, and is a new_member type
+    if message.author.id != bot.client.user.id:
+        is_welcome_message = message.channel.id == bot.channels["welcome"].id and message.type.name == "new_member"
+        if not is_welcome_message:
+            return
+    else:
         return
     try:
         new_member = message.author
@@ -887,13 +902,12 @@ async def BOTCMD_Welcome(message):
         embed.description = f"Welcome to the server, {new_member.display_name}#{new_member.discriminator}!"
         await message.channel.send(embed=embed)
         await suggest_minecraft_profile_link(new_member)
-    except:
-        error = format_exc()
-        await log_error("[Welcome] " + error)
-        
-        
-async def BOTCMD_InGame(message):
-    if message.channel.id != bot.channel_in_game.id or message.author.bot:
+    except Exception:
+        await log_error("[Welcome] " + format_exc())
+
+
+async def bot_cmd_ingame_chat(message):
+    if message.channel.id != bot.channels["in_game"].id or message.author.bot:
         return
     if await should_censor_message(message.clean_content):
         return
@@ -999,19 +1013,19 @@ async def convert_minecraft_uuid(uuid, to_dashed=True):
 async def on_message(message):
     if not bot.ready:  # Race condition
         return
-    if message.content.lower().startswith("/off") and message.author.id == bot.owner_id:
+    # Basic non-overridable shutdown command
+    if message.author.id == bot.owner_id and message.content.lower().startswith("/off"):
         try:
             await message.delete()
-        except Exception:
-            pass
-        await bot.client.close()
-        await bot.client.logout()
-        return
-    msg2 = message
-    msg2.content = msg2.content.replace("@everyone", "@ everyone").replace("@here", "@ here")
-    for i in bot.botcommands:
-        # Execute every function that starts with BOTCMD_
-        await globals()[i](msg2)
+        finally:
+            await bot.client.close()
+            await bot.client.logout()
+            return
+    message_cleaned = message
+    message_cleaned.content = message_cleaned.content.replace("@everyone", "@ everyone").replace("@here", "@ here")
+    for function_name in bot.bot_commands:
+        # Execute every function that starts with bot_cmd_
+        await globals()[function_name](message_cleaned)
     if message.author == bot.client.user or message.author.bot:
         return
     on_server = message.guild == bot.server
@@ -1019,23 +1033,24 @@ async def on_message(message):
     not_admin = not await is_member_admin(message.author)
     if on_server and not_whitelisted_channel and not_admin:
         return
-    # Execute every function that starts with CMD_
-    for i in bot.commands:
-        await globals()[i](msg2)
+    # Execute every function that starts with cmd_
+    for function_name in bot.commands:
+        await globals()[function_name](message_cleaned)
 
 
 async def config():
     bot.server = bot.client.get_guild(bot.server)
     bot.last_changed_emoji = 0
-    bot.channel_server_console = bot.server.get_channel(bot.channel_server_console)
-    bot.channel_in_game = bot.server.get_channel(bot.channel_in_game)
-    bot.channel_welcome = bot.server.get_channel(bot.channel_welcome)
-    bot.channel_botcmds = bot.server.get_channel(bot.channel_botcmds)
-    bot.channel_transactions = bot.server.get_channel(bot.channel_transactions)
+    # Instantiate channel objects
+    for channel_name in bot.channels:
+        channel_id = bot.channels[channel_name]
+        bot.channels[channel_name] = bot.server.get_channel(channel_id)
+    # Instantiate role objects
+    for role_name in bot.roles:
+        role_id = bot.roles[role_name]
+        bot.roles[role_name] = bot.server.get_role(role_id)
+
     bot.server_status = "Querying server..."
-    bot.role_aid = bot.server.get_role(817297406759534612)
-    bot.role_guest = bot.server.get_role(817134137067438112)
-    bot.role_player = bot.server.get_role(808900317638426676)
 
 
 @bot.client.event
@@ -1045,21 +1060,19 @@ async def on_ready():
         do_log(f"Bot ID: {bot.client.user.id}")
         await bot.client.change_presence(activity=discord.Game(name="Starting bot...", type=0))
         await config()
-        bot.commands = [i for i in dir(__import__(__name__)) if i.startswith("CMD_")]
-        bot.botcommands = [i for i in dir(__import__(__name__)) if i.startswith("BOTCMD_")]
-        bot.functions = [i for i in dir(__import__(__name__)) if i.startswith("FUNC")]
-        bot.initfunctions = [i for i in dir(__import__(__name__)) if i.startswith("INIT_")]
-        bot.addreactraw = [i for i in dir(__import__(__name__)) if i.startswith("ADDREACTRAW_")]
-        bot.addreact = [i for i in dir(__import__(__name__)) if i.startswith("ADDREACT_")]
-        for i in bot.initfunctions:
-            await globals()[i]()
+        bot.commands = [i for i in dir(__import__(__name__)) if i.startswith("cmd_")]
+        bot.bot_commands = [i for i in dir(__import__(__name__)) if i.startswith("bot_cmd_")]
+        bot.init_functions = [i for i in dir(__import__(__name__)) if i.startswith("init_")]
+        bot.coroutines = [i for i in dir(__import__(__name__)) if i.startswith("coroutine_")]
+
+        # Run any custom initialization functions
+        for init_function_name in bot.init_functions:
+            await globals()[init_function_name]()
         await bot.client.change_presence(activity=discord.Game(name=bot.server_status, type=0))
-        COROUTINE_change_emoji_for_channel.start()
-        COROUTINE_serverstatus.start()
-        COROUTINE_forceserverstatus.start()
-        COROUTINE_nicknamesync.start()
-        COROUTINE_checkPaypal.start()
-        COROUTINE_updateSite.start()
+
+        # Start any custom coroutines
+        for coroutine_name in bot.coroutines:
+            globals()[coroutine_name].start()
         do_log("Ready\n\n")
         bot.ready = True
     except Exception:
@@ -1068,7 +1081,6 @@ async def on_ready():
         await bot.client.logout()
         exit()
         raise Exception("CRITICAL ERROR: FAILURE TO INITIALIZE")
-        return
 
 
 def load_config_to_bot():
@@ -1086,59 +1098,41 @@ def load_config_to_bot():
         do_log(f"Loaded config setting \n'{config_key}' ({type(loaded_val).__name__})\n{loaded_val} ")
 
 
-def load_env_vars():
-    load_dotenv(verbose=True)
-    env_vars = {
-        "DISCORD_TOKEN": "",
-        "IPGEOLOCATIONIO_KEY": "",
-        "MINECRAFT_FTP_HOST": "",
-        "MINECRAFT_FTP_PASSWORD": "",
-        "MINECRAFT_FTP_USERNAME": "",
-        "MINECRAFT_RCON_HOST": "",
-        "MINECRAFT_RCON_PASSWORD": "",
-        "MINECRAFT_RCON_PORT": "",
-        "WEBSITE_SFTP_HOST": "",
-        "WEBSITE_SFTP_PASSWORD": "",
-        "WEBSITE_SFTP_USERNAME": "",
-    }
-    for env_var_name in env_vars:
-        env_var_val = os.getenv(env_var_name)
-        if os.getenv(env_var_name) is None:
-            raise NameError(f"'{env_var_name}' environment variable not found.")
-        env_vars[env_var_name] = env_var_val
-    return env_vars
-
-
-def censor_text(text):  # Censors the second half of a string, minus 4 characters
-    return text[:int(len(text) / 2)] + str("*" * (int(len(text) / 2) - 4)) + text[:4]
-
-
 def main():
     global bot
     bot.ready = False
     do_log("Loading Config")
 
     load_config_to_bot()  # Load a json to the bot class
-    env_vars = load_env_vars()  # Load the needed environment variables, optionally from a .env file
+    load_dotenv(verbose=True)
 
-    # Perform some formatting and parsing with env vars while they're still in scope
-    do_log(f'Discord token: {censor_text(env_vars["DISCORD_TOKEN"])}')
-    bot.minecraft_ftp = {"host": env_vars["MINECRAFT_FTP_HOST"], "username": env_vars["MINECRAFT_FTP_USERNAME"],
-                         "password": env_vars["MINECRAFT_FTP_PASSWORD"]}
-    bot.minecraft_rcon = {"host": env_vars["MINECRAFT_RCON_HOST"], "port": int(env_vars["MINECRAFT_RCON_PORT"]),
-                          "password": env_vars["MINECRAFT_RCON_PASSWORD"]}
-    bot.ip_geolocation_api = bot.ip_geolocation_api.format(api_key=env_vars["IPGEOLOCATIONIO_KEY"],
+    # Merge any env vars with config vars, and make variables easily accessible
+    do_log(f"Discord token: {censor_text(os.getenv('DISCORD_TOKEN'))}")
+    bot.minecraft_ftp = {
+        "host": os.getenv("MINECRAFT_FTP_HOST"),
+        "username": os.getenv("MINECRAFT_FTP_USERNAME"),
+        "password": os.getenv("MINECRAFT_FTP_PASSWORD")
+    }
+    bot.minecraft_rcon = {
+        "host": os.getenv("MINECRAFT_RCON_HOST"),
+        "port": int(os.getenv("MINECRAFT_RCON_PORT")),
+        "password": os.getenv("MINECRAFT_RCON_PASSWORD")
+    }
+    bot.website_sftp = {
+        "host": os.getenv("WEBSITE_SFTP_HOST"),
+        "username": os.getenv("WEBSITE_SFTP_USERNAME"),
+        "password": os.getenv("WEBSITE_SFTP_PASSWORD")
+    }
+
+    bot.ip_geolocation_api = bot.ip_geolocation_api.format(api_key=os.getenv("IPGEOLOCATIONIO_KEY"),
                                                            ip_address="{ip_address}")
-    bot.website_sftp = {"host": env_vars["WEBSITE_SFTP_HOST"], "username": env_vars["WEBSITE_SFTP_USERNAME"],
-                         "password": env_vars["WEBSITE_SFTP_PASSWORD"]}
+
     # DiscordPy tasks
     do_log("Loaded Config")
     do_log("Logging in")
-    bot.client.run(env_vars["DISCORD_TOKEN"])
+    bot.client.run(os.getenv('DISCORD_TOKEN'))
     do_log("Logging out")
 
 
 if __name__ == '__main__':
     main()
-    # mainthread = threading.Thread(target=main)
-    # mainthread.start()
