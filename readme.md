@@ -47,6 +47,22 @@ A contracted Discord bot for a Minecraft Server. Uses a prototyping overhead fra
     - Users can be made exempt from this by adding their Discord ID to the config
 ## Advanced Functions
 ### Store
-  todo
-
-
+The challenge with registering payment was no additional cost, unlimited transactions, and 24/7 uptime. There are no first/second-party methods at the time of writing, the closest thing is Paypal's IPN API which requires you to build, host and maintain an endpoint. 
+The current process is,
+1. "Buy Now" buttons are created on PayPal's page, with
+    - Specific "Item Codes"
+    - An input for a username, specifically called "Minecraft Username"
+2. A modified and better looking version of the button code is placed on the website. The username field is made required.
+3. After a user submits their transaction, an email is dispatched to the email address attached to the account.
+4. This account has forwarding set up to a seperate untouched account that only the bot has access to (and for good reason, security is required to be lower for this to work and having that on a main account is a bad idea)
+5. Any incoming message with a certain critera is automatically moved from Inbox to a "PayPal" folder
+6. At an interval, the bot logs into this email address and searches for unread "PayPal" emails. 
+7. If it finds any, it automatically marks them as "Read" to avoid duplication, and parses out the Item Code, Cost, and Username
+8. It takes the Item Code and opens our store_lookup.json. There, the item code should be present with additional information such as "friendly name" and "commands to run".
+9. It open an RCON connection to the Minecraft Server and give the user whatever they purchased.
+    - One of the items are keys. Keys cannot be given physically while offline, so instead they are given "virtually" and they player is sent a "mail" that will prompt them to check their virtual keys once they log back in.
+10. It then logs the Username, Friendly Name, and Cost in a Discord channel (configurable)
+11. It will add that transaction to its internal database, which is used later.
+12. To avoid race conditions, every 30 seconds, the bot opens the transaction log for that month and calculates the total. 
+13. The total is then uploaded to a file on the website's server under the "YYYY-MM.txt" format.
+14. The website is set to, on load, check for this file on its server. If it doesn't exist, it assumes 0. If it does exist, it takes that number and applies it to the "Monthly Goal" progress meter.
