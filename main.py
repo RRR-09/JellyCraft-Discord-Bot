@@ -596,7 +596,10 @@ async def is_member_admin(member):
         if member is None:
             await log_error(f"[{get_est_time()}] ERROR: Could not find member \"{member_id}\".")
             return False
-    if not member.guild_permissions.manage_guild:
+    try:
+        if not member.guild_permissions.manage_guild:
+            return False
+    except Exception:
         return False
     return True
 
@@ -651,7 +654,7 @@ async def coroutine_nickname_sync():
         if "id" in uuid_obj:
             uuid = await convert_minecraft_uuid(uuid_obj["id"])
             essentials_profile = await get_essentials_profile(uuid)
-            if essentials_profile != False:
+            if essentials_profile is not False and essentials_profile is not None:
                 if "nickname" in essentials_profile:
                     true_name = essentials_profile["nickname"]
                     color_tag_count = true_name.count("§")
