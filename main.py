@@ -691,14 +691,13 @@ async def get_paypal_transactions_from_gmail():
             for response_part in data:
                 if isinstance(response_part, tuple):
                     msg = email.message_from_bytes(response_part[1])
-                    email_subject = msg['subject']
-                    if "Notification of Payment Received" in email_subject:
-                        item_purchased = email_subject.split("Item #", 1)[-1].split("- Notification of Payment "
-                                                                                    "Received", 1)[0].strip()
-                        html = str(msg.get_payload(decode=True).decode())
+                    html = str(msg.get_payload(decode=True).decode())
+                    if "Minecraft Username:" in html:
+                        item_purchased = html.split("Item #:", 1)[-1].split("</span>", 1)[0].strip()
+                        
                         minecraft_username = html.split("Minecraft Username: ", 1)[-1].split("</span>", 1)[0].strip()
-                        cart_details = html.split("<span><strong>Payment</strong></span>", 1)[-1].split("</tr>", 1)[0]
-                        amount_paid = cart_details.split("<span>$", 1)[-1].split("</span>", 1)[0].strip()
+                        amount_paid = html.rsplit(" USD", 1)[0].rsplit("$", 1)[-1].strip()
+                        amount_paid = f"${amount_paid} USD"
                         purchases.append({
                             "username": minecraft_username,
                             "item_purchased": item_purchased,
@@ -805,7 +804,7 @@ async def log_store_transaction(username, item, amount_paid):
     with open(file_monthly_store_log, "w") as json_file:
         json.dump(bot.monthly_store_log, json_file, indent=4)
 
-    log_message = f"__[{log_entry['friendly_time']}]__\n``{username}`` bought ``{friendly_item_name}``\n${amount_paid}"
+    log_message = f"__[{log_entry['friendly_time']}]__\n``{username}`` bought ``{friendly_item_name}``\n{amount_paid}"
     await bot.channels["transactions"].send(log_message)
 
 
@@ -822,7 +821,7 @@ async def coroutine_check_paypal():
         username = purchase["username"]
         item = purchase["item_purchased"]
         amount_paid = purchase["amount_paid"]
-        await log_store_transaction(username, item, amount_paid)
+        await log_store_transaction(username, item, amount_paid[:10])
         await process_store_item(username, item)
 
 
