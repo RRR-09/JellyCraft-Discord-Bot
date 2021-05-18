@@ -11,13 +11,13 @@
     "Membership_1Month": {
         "friendly_name": "1 Month Membership",
         "commands": [
-            "set access {username} member"
+            "lp user {username} parent addtemp member 30d"
         ]
     },
     "Membership_Permanant": {
         "friendly_name": "Permanant Membership",
         "commands": [
-            "set access {username} member"
+            "lp user {username} parent add member"
         ]
     },
     
@@ -83,6 +83,28 @@
         "friendly_name": "Legendary Crate Key (x10)",
         "commands": [
             "crazycrate give physical Legendary 10 {username}",
+            "crazycrate giveall physical Boost 2"
+        ]
+    },
+    
+    
+    "Spawner3": {
+        "friendly_name": "Spawner Crate Key (x3)",
+        "commands": [
+            "crazycrate give physical Spawner 3 {username}"
+        ]
+    },
+    "Spawner6": {
+        "friendly_name": "Spawner Crate Key (x6)",
+        "commands": [
+            "crazycrate give physical Spawner 6 {username}",
+            "crazycrate giveall physical Boost 1"
+        ]
+    },
+    "Spawner10": {
+        "friendly_name": "Spawner Crate Key (x10)",
+        "commands": [
+            "crazycrate give physical Spawner 10 {username}",
             "crazycrate giveall physical Boost 2"
         ]
     }
