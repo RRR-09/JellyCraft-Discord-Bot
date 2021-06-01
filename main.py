@@ -10,8 +10,6 @@ from datetime import datetime
 from ftplib import FTP
 from traceback import format_exc
 import argparse
-import imaplib
-import email
 # endregion
 
 # region External Libraries
@@ -25,7 +23,6 @@ from discord import Embed
 from discord.ext import tasks
 
 print("Imported Discord")
-import asyncio  # pip install -U discord.py[voice];pip install aiofiles
 import requests  # pip install requests
 from mcstatus import MinecraftServer  # pip install mcstatus
 import yaml  # pip install PyYaml
@@ -58,6 +55,7 @@ class VarHolder:
 
 
 global bot
+# noinspection PyRedeclaration
 bot = VarHolder()
 logger = logging.getLogger('discord')
 logger.setLevel(logging.DEBUG)
@@ -112,6 +110,7 @@ def json_load_eval(fp_obj):  # Loads a json evaluating any strings to possible v
     return json.load(fp_obj, object_pairs_hook=json_eval_object_pairs_hook)
 
 
+# noinspection PyShadowingBuiltins
 async def find_server_member(message=None, discord_id=None):  # todo: Clean this up
     message_copy = message
     if message_copy is None:
@@ -183,6 +182,7 @@ async def find_server_member(message=None, discord_id=None):  # todo: Clean this
     return user
 
 
+# noinspection PyUnusedLocal
 @bot.client.event
 async def on_error(event, args="", kwargs=""):
     error = format_exc()
@@ -241,16 +241,19 @@ async def init_censor():
             bot.uncensored_channels.append(channel.id)
 
 
+# noinspection PyUnusedLocal
 @bot.client.event
 async def on_guild_channel_update(before, after):
     await init_censor()
 
 
+# noinspection PyUnusedLocal
 @bot.client.event
 async def on_guild_channel_create(channel):
     await init_censor()
 
 
+# noinspection PyUnusedLocal
 @bot.client.event
 async def on_guild_channel_delete(channel):
     await init_censor()
@@ -462,6 +465,7 @@ async def get_english_timestamp(time_var):
     return "{} day{}, {} hour{}".format(days, "s" if days != 1 else "", hours, "s" if hours != 1 else "")
 
 
+# noinspection PyTypeChecker
 async def cmd_player_info(message):
     if not message.content.lower().startswith("/pinfo"):
         return
@@ -517,10 +521,10 @@ async def cmd_player_info(message):
     embed.set_footer(text=await convert_minecraft_uuid(profile["uuid"]))
     embed.set_thumbnail(url=profile["avatar"])
     if bot.server_online:
+        player_online = False
         try:
             server = MinecraftServer.lookup("play.jellycraft.net")
             query = server.query()
-            player_online = False
             if profile["username"] in query.players.names:
                 player_online = True
             embed.add_field(name="Status on Minecraft", value="Online" if player_online else "Offline")
@@ -674,44 +678,8 @@ async def coroutine_nickname_sync():
                 changed += 1
             except Exception:
                 error = format_exc()
-                await log_error(f"[coroutine_nicknamesync] {member.display_name} / {minecraft_name}\n" + error)
+                await log_error(f"[coroutine_nickname_sync] {member.display_name} / {minecraft_name}\n" + error)
     print(f"[NameSync] {found}/{len(bot.discord_to_minecraft)} found, {changed}/{needed_change} changed")
-
-
-async def get_paypal_transactions_from_gmail():
-    try:
-        purchases = []
-        mail = imaplib.IMAP4_SSL('imap.gmail.com')
-        mail.login(os.getenv("PAYPAL_EMAIL"), os.getenv("PAYPAL_PASSWORD"))
-
-        mail.select('Paypal')
-
-        result, data = mail.search(None, 'UnSeen')  # Find "Unread" emails
-        mail_ids = data[0]
-        for mail_id in mail_ids.split():
-            current_mail_id = str(int(mail_id))  # Need to verify this is necessary
-            result, data = mail.fetch(current_mail_id, "(RFC822)")
-            for response_part in data:
-                if isinstance(response_part, tuple):
-                    msg = email.message_from_bytes(response_part[1])
-                    html = str(msg.get_payload(decode=True).decode())
-                    if "Minecraft Username:" in html:
-                        item_purchased = html.split("Item #:", 1)[-1].split("</span>", 1)[0].strip()
-                        
-                        minecraft_username = html.split("Minecraft Username: ", 1)[-1].split("</span>", 1)[0].strip()
-                        amount_paid = html.rsplit(" USD", 1)[0].rsplit("$", 1)[-1].strip()
-                        amount_paid = f"${amount_paid} USD"
-                        purchases.append({
-                            "username": minecraft_username,
-                            "item_purchased": item_purchased,
-                            "amount_paid": amount_paid
-                        })
-                        # mail.store(current_mail_id, '+FLAGS', '\Seen') #Mark as "Read"
-        mail.close()
-        mail.logout()
-        return True, purchases
-    except Exception:
-        return False, format_exc()
 
 
 async def init_store():
@@ -771,6 +739,91 @@ async def process_store_item(username, item):
                     rcon.run(f"mail {username} {message}")
 
 
+async def make_member_on_discord(username):
+    username_lower = username.lower()
+    if username_lower not in bot.minecraft_to_discord:
+        await bot.channels["admin"].send(
+            f"WARNING: Could not find Discord account for ``{username}``, was unable to make them a member on Discord.")
+        return
+    else:
+        discord_id = bot.minecraft_to_discord[username_lower]
+        member = bot.server.get_member(discord_id)
+        await member.add_roles(bot.roles["member"])
+        await member.remove_roles(bot.roles["player"])
+        await member.remove_roles(bot.roles["guest"])
+
+
+async def init_temp_purchases():
+    bot.file_temp_purchases = os.path.join("store_log", "temporary_purchases.json")
+    bot.temp_purchases = []
+    try:
+        with open(bot.file_temp_purchases, "r") as json_file:
+            bot.temp_purchases = json.load(json_file)
+    except FileNotFoundError:
+        with open(bot.file_temp_purchases, "w") as json_file:
+            json.dump(bot.temp_purchases, json_file, indent=4)
+
+
+async def log_temp_purchase(username, item_name):
+    temp_membership_obj = {}
+    username_lower = username.lower()
+    temp_membership_obj["time_stamp"] = time.time()
+    temp_membership_obj["user_name"] = username_lower
+    temp_membership_obj["item_name"] = item_name
+    temp_membership_obj["discord_id"] = ""
+    if username_lower in bot.minecraft_to_discord:
+        temp_membership_obj["discord_id"] = bot.minecraft_to_discord[username_lower]
+    else:
+        await bot.channels["admin"].send(
+            f"WARNING: ``{username}`` purchased temporary membership but was not found in the Discord.\nIf they join, "
+            f"please manually give member to them and ensure they link their account before the end of the month.")
+    bot.temp_purchases.append(temp_membership_obj)
+    with open(bot.file_temp_purchases, "w") as json_file:
+        json.dump(bot.temp_purchases, json_file, indent=4)
+
+
+@tasks.loop(seconds=30)
+async def coroutine_check_temp_purchases():
+    try:
+        with open(bot.file_temp_purchases, "r") as json_file:
+            bot.temp_purchases = json.load(json_file)
+    except FileNotFoundError:
+        print(f"[coroutine_check_temp_purchases]: Missing file '{bot.file_temp_purchases}'?")
+        return
+    one_month = ((60 * 60) * 24) * 30
+    reprocessed_temp_purchases = []
+    for temp_purchase in bot.temp_purchases:
+        expiry_date = float(temp_purchase["time_stamp"]) + one_month
+        if time.time() > expiry_date:
+            discord_id = temp_purchase["discord_id"]
+            user_name = temp_purchase["user_name"]
+            if discord_id == "":
+                if user_name in bot.minecraft_to_discord:
+                    discord_id = bot.minecraft_to_discord["user_name"]
+                else:
+                    await bot.channels["admin"].send(
+                        f"WARNING: The membership purchased by ``{user_name}`` 30 days ago has now expired, but they "
+                        f"are not in the discord. Can't revoke Discord membership.")
+                    continue
+            member = bot.server.get_member(int(discord_id))
+            try:
+                await member.remove_roles(bot.roles["member"])
+                await member.add_roles(bot.roles["player"])
+                await bot.channels["admin"].send(
+                    f"The membership purchased by ``{user_name}`` 30 days ago has now expired, and their member role "
+                    f"on Discord has been revoked.")
+            except Exception:
+                await bot.channels["admin"].send(
+                    f"The membership purchased by ``{user_name}`` 30 days ago has now expired, but there was an error "
+                    f"revoking their member role on Discord.")
+                await bot.channels["admin"].send(f"```py\n{format_exc()}```")
+        else:
+            reprocessed_temp_purchases.append(temp_purchase)
+    bot.temp_purchases = reprocessed_temp_purchases
+    with open(bot.file_temp_purchases, "w") as json_file:
+        json.dump(reprocessed_temp_purchases, json_file, indent=4)
+
+
 async def log_store_transaction(username, item, amount_paid):
     try:
         numerical_amount_paid = float(amount_paid.replace("$", "").split(" ", 1)[0])  # "$10.53 USD" -> 10.53
@@ -810,21 +863,25 @@ async def log_store_transaction(username, item, amount_paid):
     log_message = f"__[{log_entry['friendly_time']}]__\n``{username}`` bought ``{friendly_item_name}``\n{amount_paid}"
     await bot.channels["transactions"].send(log_message)
 
+    if item in ["Membership_1Month", "Membership_Permanant"]:
+        if item == "Membership_1Month":
+            await log_temp_purchase(username, item)
+        await make_member_on_discord(username)
 
-@tasks.loop(seconds=30)
-async def coroutine_check_paypal():
-    success, data = await get_paypal_transactions_from_gmail()
-    if not success:
-        error_message = data
-        failed_message = f"__[{get_est_time()}]__\nFailed to check PayPal transactions!\n```py\n{error_message}```"
-        await bot.channels["transactions"].send(failed_message)
-        print(failed_message)
+
+async def bot_cmd_paypal_transaction(message):
+    if message.channel.id != bot.channels["paypal_ipn_log"].id:
         return
-    for purchase in data:
-        username = purchase["username"]
-        item = purchase["item_purchased"]
-        amount_paid = purchase["amount_paid"]
-        await log_store_transaction(username, item, amount_paid[:10])
+    try:
+        purchase = json.loads(message.content)
+    except Exception:
+        print(format_exc())
+        return
+    if "verified" in purchase and purchase["verified"]:
+        username = purchase["user_name"]
+        item = purchase["item_code"]
+        amount_paid = purchase["total_friendly"]
+        await log_store_transaction(username, item, amount_paid)
         await process_store_item(username, item)
 
 
@@ -842,6 +899,7 @@ async def upload_monthly_fundraising_progress(amount, file_name):
 
     try:
         opts = pysftp.CnOpts()
+        # noinspection SpellCheckingInspection
         opts.hostkeys = None  # Force insecure, Todo: Use keys and make secure
         with pysftp.Connection(host=host, username=username, password=password, cnopts=opts) as sftp:
             sftp.cwd(f"/var/www/jellycraft.net/html/store/goals/")
@@ -986,7 +1044,8 @@ async def get_essentials_profile(uuid):
         with FTP(args["host"], args["username"], args["password"]) as ftp:
             ftp.cwd("/plugins/Essentials/userdata")
             yml_file = []
-            ftp.retrlines(f"RETR {uuid}.yml", yml_file.append)
+            # noinspection SpellCheckingInspection
+            ftp.retrlines(f'RETR {uuid}.yml', yml_file.append)
             yml_file = "\n".join(yml_file)
             yml_file = yaml.safe_load(yml_file)
     except Exception:
