@@ -973,11 +973,8 @@ async def bot_cmd_ingame_chat(message):
     if not bot.server_online:
         return
     embed = Embed()
-    color = "#" + hex(message.author.top_role.color.value).replace("0x", "", 1)
-    color = color if color != "#0" else "#FFFFFF"
-    role = message.author.top_role.name
     clean_everyone_content = message.clean_content if message.mention_everyone else message.content
-    embed.description = f"[{role}] {message.author.display_name}: {clean_everyone_content}"
+    embed.description = f"[Discord] {message.author.display_name}: {clean_everyone_content}"
 
     try:
         failed = False
@@ -990,16 +987,27 @@ async def bot_cmd_ingame_chat(message):
                 essentials_profile = await get_essentials_profile(uuid)
                 if essentials_profile != False:
                     display_name = message.author.display_name
+                    clean_display_name = display_name
+                    message_obj = [
+                        {"text": "[", "color": "white"},
+                        {"text": "Discord", "color": "blue"},
+                        {"text": "] ", "color": "white"}
+                    ]
                     if essentials_profile is not None and "nickname" in essentials_profile:
                         display_name = essentials_profile["nickname"]
                         clean_display_name = re.sub(r"(§[a-zA-Z0-9])", "", display_name)
-                        embed.description = f"[{role}] {clean_display_name}: {clean_everyone_content}"
+                        embed.description = f"[Discord] {clean_display_name}: {clean_everyone_content}"
+                    if clean_display_name == display_name:
+                        message_obj.append({"text": display_name, "color": "gray"})
+                    else:
+                        message_obj.append({"text": display_name})
+                    message_obj.append({"text": " >> ", "bold": True, "color": "gray"})
+                    message_obj.append({"text": message.clean_content, "color": "white"})
+
                     rcon_credentials = bot.minecraft_rcon
                     with Client(rcon_credentials["host"], rcon_credentials["port"],
                                 passwd=rcon_credentials["password"]) as c:
-                        c.tellraw("@a", [{"text": "[", "color": "white"}, {"text": role, "color": color},
-                                         {"text": f"] {display_name}"},
-                                         {"text": f": {message.clean_content}", "color": "white"}])
+                        c.tellraw("@a", message_obj)
                         await message.channel.send(embed=embed)
                         await message.delete()
                 else:
