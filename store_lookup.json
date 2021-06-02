@@ -14,8 +14,8 @@
             "lp user {username} parent addtemp member 30d"
         ]
     },
-    "Membership_Permanant": {
-        "friendly_name": "Permanant Membership",
+    "Membership_Permanent": {
+        "friendly_name": "Permanent Membership",
         "commands": [
             "lp user {username} parent add member"
         ]

@@ -863,7 +863,7 @@ async def log_store_transaction(username, item, amount_paid):
     log_message = f"__[{log_entry['friendly_time']}]__\n``{username}`` bought ``{friendly_item_name}``\n{amount_paid}"
     await bot.channels["transactions"].send(log_message)
 
-    if item in ["Membership_1Month", "Membership_Permanant"]:
+    if item in ["Membership_1Month", "Membership_Permanent"]:
         if item == "Membership_1Month":
             await log_temp_purchase(username, item)
         await make_member_on_discord(username)
