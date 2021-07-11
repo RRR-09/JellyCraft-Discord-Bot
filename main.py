@@ -785,6 +785,15 @@ async def log_temp_purchase(username, item_name):
 
 
 @tasks.loop(seconds=30)
+async def coroutine_check_members_have_guest_minimum():
+    async for member in bot.server.fetch_members(limit=None):
+        if len(member.roles) >= 2:
+            continue
+        await bot.channels["admin"].send(f"Warning: {member.mention} missing Guest role. Adding.")
+        await member.add_roles(bot.roles["guest"])
+
+
+@tasks.loop(seconds=30)
 async def coroutine_check_temp_purchases():
     try:
         with open(bot.file_temp_purchases, "r") as json_file:
@@ -948,6 +957,11 @@ async def suggest_minecraft_profile_link(user):
             await log_error("[suggest_minecraft_profile_link] " + error)
 
 
+async def give_guest_if_missing(new_member):
+    if bot.roles["guest"] not in new_member.roles:
+        await new_member.add_roles(bot.roles["guest"])
+
+
 async def bot_cmd_welcome(message):
     # Continue if message is not from bot, in welcome channel, and is a new_member type
     if message.author.id != bot.client.user.id:
@@ -963,6 +977,7 @@ async def bot_cmd_welcome(message):
         embed.description = f"Welcome to the server, {new_member.display_name}#{new_member.discriminator}!"
         await message.channel.send(embed=embed)
         await suggest_minecraft_profile_link(new_member)
+        await give_guest_if_missing(new_member)
     except Exception:
         await log_error("[Welcome] " + format_exc())
 
