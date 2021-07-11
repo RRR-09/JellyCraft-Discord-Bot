@@ -3,12 +3,20 @@ A contracted Discord bot for a Minecraft Server. Uses a prototyping overhead fra
 
 
 # Functions (and items to manually test):
+## Auxiliary Functions
+1. Player Playtime Barchart Race
+    - Scan the message logs in the log channel on Discord and create time data on users based on leaves/joins
+    - Compile the data into a chartable format
+    - Create an animation
+
+![Bar Chart Animation](https://i.imgur.com/BlgrwLy.gif)
 ## Basic Functions
 1. Welcome functionality 
     - Keeps join log accurate in case of bot failure by detecting and deleting Discord's default greeting (would not be deleted if bot is offline)
     - Custom welcome messages
     - DM a user with recommendations about linking Minecraft account
     - Pings them in the bot commands channel if they have DMs turned off
+    - Changes role if detected failure from other bots responsible for changing roles on join
 2. Censor swear words from people and bots, except for:
     - Chats that only roles above a certain role (Aid) can see
     - Custom-specified channels in the config
@@ -47,22 +55,24 @@ A contracted Discord bot for a Minecraft Server. Uses a prototyping overhead fra
     - Users can be made exempt from this by adding their Discord ID to the config
 ## Advanced Functions
 ### Store
-The challenge with registering payment was no additional cost, unlimited transactions, and 24/7 uptime. There are no first/second-party methods at the time of writing, the closest thing is Paypal's IPN API which requires you to build, host and maintain an endpoint. 
+~~The challenge with registering payment was no additional cost, unlimited transactions, and 24/7 uptime. There are no first/second-party methods at the time of writing, the closest thing is Paypal's IPN API which requires you to build, host and maintain an endpoint. ~~
+Paypal randomizes their email formats without warning (words used, layout, etc.), so the previous method was unreliable. an endpoint has built to support Paypal's IPN system, using Heroku free dynamo, which hibernates after 30 minutes of inactivity. Exceeding the free monthly limits is next to impossible.
 The current process is,
 1. "Buy Now" buttons are created on PayPal's page, with
     - Specific "Item Codes"
     - An input for a username, specifically called "Minecraft Username"
 2. A modified and better looking version of the button code is placed on the website. The username field is made required.
-3. After a user submits their transaction, an email is dispatched to the email address attached to the account.
-4. This account has forwarding set up to a seperate untouched account that only the bot has access to (and for good reason, security is required to be lower for this to work and having that on a main account is a bad idea)
-5. Any incoming message with a certain critera is automatically moved from Inbox to a "PayPal" folder
-6. At an interval, the bot logs into this email address and searches for unread "PayPal" emails. 
-7. If it finds any, it automatically marks them as "Read" to avoid duplication, and parses out the Item Code, Cost, and Username
-8. It takes the Item Code and opens our store_lookup.json. There, the item code should be present with additional information such as "friendly name" and "commands to run".
-9. It open an RCON connection to the Minecraft Server and give the user whatever they purchased.
+~~3. After a user submits their transaction, an email is dispatched to the email address attached to the account.~~
+~~4. This account has forwarding set up to a seperate untouched account that only the bot has access to (and for good reason, security is required to be lower for this to work and having that on a main account is a bad idea)~~
+~~5. Any incoming message with a certain critera is automatically moved from Inbox to a "PayPal" folder~~
+~~6. At an interval, the bot logs into this email address and searches for unread "PayPal" emails. ~~
+~~7. If it finds any, it automatically marks them as "Read" to avoid duplication, and parses out the Item Code, Cost, and Username~~
+3. The backend running on Heroku actively listens for any PayPal IPN requests sent to it, verifies it, and sends the results to a transaction backend channel on the Discord, for logging/user-friendly debugging
+4. It takes the Item Code and opens our store_lookup.json. There, the item code should be present with additional information such as "friendly name" and "commands to run".
+5. It open an RCON connection to the Minecraft Server and give the user whatever they purchased.
     - One of the items are keys. Keys cannot be given physically while offline, so instead they are given "virtually" and they player is sent a "mail" that will prompt them to check their virtual keys once they log back in.
-10. It then logs the Username, Friendly Name, and Cost in a Discord channel (configurable)
-11. It will add that transaction to its internal database, which is used later.
-12. To avoid race conditions, every 30 seconds, the bot opens the transaction log for that month and calculates the total. 
-13. The total is then uploaded to a file on the website's server under the "YYYY-MM.txt" format.
-14. The website is set to, on load, check for this file on its server. If it doesn't exist, it assumes 0. If it does exist, it takes that number and applies it to the "Monthly Goal" progress meter.
+6. It then logs the Username, Friendly Name, and Cost in a Discord channel (configurable)
+7. It will add that transaction to its internal database, which is used later.
+8. To avoid race conditions, every 30 seconds, the bot opens the transaction log for that month and calculates the total. 
+9. The total is then uploaded to a file on the website's server under the "YYYY-MM.txt" format.
+10. The website is set to, on load, check for this file on its server. If it doesn't exist, it assumes 0. If it does exist, it takes that number and applies it to the "Monthly Goal" progress meter.
