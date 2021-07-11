@@ -664,6 +664,8 @@ async def coroutine_nickname_sync():
                     color_tag_count = true_name.count("§")
                     for i in range(color_tag_count):
                         try:
+                            if "§" not in true_name:  # todo: Weird ValueError bug, investigate
+                                continue
                             color_char_index = true_name.index("§")
                             if color_char_index != -1:
                                 color_to_remove = true_name[color_char_index:color_char_index + 2]
