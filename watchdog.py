@@ -1,6 +1,7 @@
 from subprocess import Popen
-from time import sleep
 from threading import Thread
+from time import sleep
+
 
 def run_checkscript_every_second():
   while True:

@@ -1,15 +1,17 @@
 # region Standard Libraries
+import argparse
 import json
 import logging
 import os
 from datetime import datetime
 from traceback import format_exc
-import argparse
-# endregion
 
+import pytz  # pip install pytz
 # region External Libraries
 from dotenv import load_dotenv  # pip install python-dotenv
-import pytz  # pip install pytz
+
+# endregion
+
 
 print(
     "Importing Discord")  # Importing discord.py can stall due to faulty PyNaCl versions, this helps with identification

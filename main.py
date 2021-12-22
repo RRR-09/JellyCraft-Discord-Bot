@@ -1,4 +1,5 @@
 # region Standard Libraries
+import argparse
 import json
 import logging
 import math
@@ -9,12 +10,13 @@ import time
 from datetime import datetime
 from ftplib import FTP
 from traceback import format_exc
-import argparse
-# endregion
 
+import pytz  # pip install pytz
 # region External Libraries
 from dotenv import load_dotenv  # pip install python-dotenv
-import pytz  # pip install pytz
+
+# endregion
+
 
 print(
     "Importing Discord")  # Importing discord.py can stall due to faulty PyNaCl versions, this helps with identification
@@ -23,12 +25,11 @@ from discord import Embed
 from discord.ext import tasks
 
 print("Imported Discord")
+import pysftp  # pip3.9 install pysftp
 import requests  # pip install requests
-from mcstatus import MinecraftServer  # pip install mcstatus
 import yaml  # pip install PyYaml
 from mcipc.rcon.je import Client  # pip3.9 install mcipc
-import pysftp  # pip3.9 install pysftp
-
+from mcstatus import MinecraftServer  # pip install mcstatus
 
 # endregion
 

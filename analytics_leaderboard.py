@@ -1,5 +1,5 @@
-import json
 import csv
+import json
 
 with open("analytics_processed.csv", "r") as csv_file:
     analytics = csv.DictReader(csv_file)    
